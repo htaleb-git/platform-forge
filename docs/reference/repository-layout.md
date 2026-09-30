@@ -43,7 +43,6 @@ infrastructure/
 │       ├── applications/
 │       │   ├── n8n/
 │       │   ├── gitlab/
-│       │   ├── immich/
 │       │   ├── nextcloud/
 │       │   └── wordpress/
 │       ├── monitoring/
@@ -54,11 +53,8 @@ infrastructure/
 │       └── operations/
 │           ├── backup_n8n/
 │           ├── backup_gitlab/
-│           ├── backup_immich/
 │           ├── backup_nextcloud/
 │           ├── backup_wordpress/
-│           ├── backup_remote_access/
-│           ├── backup_remote_collect/
 │           ├── manage_application/
 │           └── maintain_server/
 └── docs/
@@ -70,7 +66,7 @@ infrastructure/
 - `platform` : runtime, stockage et capacités partagées ;
 - `applications` : workloads ;
 - `monitoring` : observabilité ;
-- `operations` : lifecycle, backup, restore, collecte distante et maintenance.
+- `operations` : lifecycle, backup, restore et maintenance.
 
 ## Principe de variables
 

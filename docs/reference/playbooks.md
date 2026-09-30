@@ -32,20 +32,6 @@
 ./scripts/run-playbook.sh vps bkp --tags backup_wordpress
 ```
 
-## Collecte distante sur HomeLab
-
-```bash
-./scripts/run-playbook.sh hml bkp --tags backup_remote_collect
-```
-
-## HomeLab / Immich
-
-```bash
-./scripts/run-playbook.sh hml app --tags immich
-./scripts/run-playbook.sh hml ops immich status
-./scripts/run-playbook.sh hml bkp --tags immich
-```
-
 ## Monitoring
 
 ```bash

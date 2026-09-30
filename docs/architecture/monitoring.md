@@ -180,7 +180,6 @@ Les scripts écrivent des fichiers `.prom` :
 ```text
 backup_n8n.prom
 backup_gitlab.prom
-backup_immich.prom
 restic.prom
 ```
 
@@ -450,7 +449,7 @@ Si ces deux tests répondent mais que le hostname ne fonctionne pas, vérifier l
 Le monitoring distingue désormais deux événements différents :
 
 1. l'exécution du backup applicatif ;
-2. la réplication du backup VPS vers le HomeLab.
+2. la publication des métriques de backup.
 
 ### Métriques applicatives
 
@@ -460,18 +459,6 @@ backup_last_run_timestamp{backup="..."}
 backup_last_success_timestamp{backup="..."}
 backup_last_duration_seconds{backup="..."}
 ```
-
-### Métriques de collecte distante
-
-Le rôle `backup_remote_collect` écrit un fichier Textfile Collector commun contenant une série par source :
-
-```text
-backup_remote_collect_status{source="vps01",backup="n8n"}
-backup_remote_collect_timestamp{source="vps01",backup="n8n"}
-backup_remote_collect_duration_seconds{source="vps01",backup="n8n"}
-```
-
-Les mêmes séries existent pour `nextcloud` et `wordpress`.
 
 ### Dashboard Backup Health
 

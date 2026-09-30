@@ -72,24 +72,6 @@ Le répertoire MariaDB brut n'est jamais copié à chaud. Le coeur WordPress est
 
 ## Réplication VPS → HomeLab
 
-```text
-/srv/vps/backups/
-├── n8n/
-├── nextcloud/
-└── wordpress/
-       ↓ SSH / rrsync read-only
-/srv/homelab/backups/vps01/
-├── n8n/
-├── nextcloud/
-└── wordpress/
-       ↓
-Restic HomeLab → BACKUPS01
-```
-
-Le rôle `backup_remote_access` prépare l'accès restreint sur le VPS. Le rôle `backup_remote_collect` tourne sur le HomeLab.
-
-Le compte `backup-pull` est limité en lecture seule à `/srv/vps/backups` via `rrsync -ro`. Les artefacts utilisent le groupe `backup-readers`.
-
 ## Timers déclaratifs
 
 Les flags d'activation sont spécifiques à l'environnement. Convention :

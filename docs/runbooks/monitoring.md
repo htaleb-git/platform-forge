@@ -62,7 +62,6 @@ Déclenchement manuel :
 ```bash
 sudo systemctl start backup-n8n.service
 sudo systemctl start backup-gitlab.service
-sudo systemctl start backup-immich.service
 ```
 
 Puis :
@@ -70,7 +69,6 @@ Puis :
 ```bash
 cat /srv/homelab/data/node_exporter/textfile/backup_n8n.prom
 cat /srv/homelab/data/node_exporter/textfile/backup_gitlab.prom
-cat /srv/homelab/data/node_exporter/textfile/backup_immich.prom
 ```
 
 ## Contrôler Restic

@@ -88,16 +88,6 @@ Il produit :
 
 Le timer systemd est déclaratif : `backup_wordpress_enabled=true` l'active ; `false` l'arrête et le désactive.
 
-## Collecte hors VPS
-
-Les permissions VPS permettent au groupe `backup-readers` de lire les artefacts. Le rôle HomeLab `backup_remote_collect` récupère la source `wordpress` vers :
-
-```text
-/srv/homelab/backups/vps01/wordpress/
-```
-
-La collecte a été testée avec succès.
-
 ## Restore
 
 Le restore WordPress a été validé de bout en bout :

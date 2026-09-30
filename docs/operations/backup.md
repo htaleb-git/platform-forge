@@ -52,23 +52,6 @@ sudo systemctl start backup-nextcloud.service
 sudo systemctl start backup-wordpress.service
 ```
 
-## Collecte VPS → HomeLab
-
-Déployer :
-
-```bash
-./scripts/run-playbook.sh hml bkp --tags backup_remote_collect
-```
-
-Forcer :
-
-```bash
-sudo systemctl start backup-remote-collect.service
-sudo systemctl status backup-remote-collect.service --no-pager
-```
-
-Sources actuelles : `n8n`, `nextcloud`, `wordpress`.
-
 ## Timers déclaratifs
 
 Convention :

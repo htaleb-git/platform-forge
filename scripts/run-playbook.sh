@@ -17,7 +17,7 @@ declare -A PLAYBOOKS=(
   [monitoring]="08-monitoring.yml"
 )
 
-ALLOWED_OPERATION_APPS=(gitlab nextcloud n8n)
+ALLOWED_OPERATION_APPS=(gitlab nextcloud n8n wordpress)
 ALLOWED_OPERATIONS=(start stop restart status)
 ALLOWED_RESTORE_APPS=(gitlab nextcloud n8n wordpress)
 
@@ -39,7 +39,7 @@ Canonical commands:
   monitoring    08-monitoring.yml
 
 Application operations:
-  Applications: gitlab, nextcloud, n8n
+  Applications: gitlab, nextcloud, n8n, wordpress
   Operations:   start, stop, restart, status
 
 Restore applications:

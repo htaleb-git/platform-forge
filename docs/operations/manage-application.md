@@ -16,14 +16,16 @@ Fournir une interface commune pour exploiter les applications Docker Compose.
 
 - n8n ;
 - GitLab ;
-- Immich.
+- Nextcloud ;
+- WordPress.
 
 ## Runner
 
 ```bash
-./scripts/run-playbook.sh hml ops n8n status
-./scripts/run-playbook.sh hml ops gitlab status
-./scripts/run-playbook.sh hml ops immich status
+./scripts/run-playbook.sh platform01 operation n8n status
+./scripts/run-playbook.sh platform01 operation gitlab status
+./scripts/run-playbook.sh platform01 operation nextcloud status
+./scripts/run-playbook.sh platform01 operation wordpress status
 ```
 
 Remplacer `status` par :
