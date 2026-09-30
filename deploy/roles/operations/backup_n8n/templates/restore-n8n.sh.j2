@@ -1,41 +1,69 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-BACKUP_DIR="{{ backup_n8n_dir }}"
-DUMP_FILE="${BACKUP_DIR}/n8n.dump"
+[[ $# -eq 1 ]] || { echo "Usage: $0 <validated-generation-directory>" >&2; exit 2; }
+GENERATION_DIR="$1"
+DUMP_FILE="${GENERATION_DIR}/{{ backup_n8n_dump_name }}"
+POSTGRES_CONTAINER="{{ n8n_postgres_container_name }}"
+N8N_CONTAINER="{{ n8n_container_name }}"
+POSTGRES_USER="{{ n8n_postgres_user }}"
+POSTGRES_DB="{{ n8n_postgres_db }}"
+ROLLBACK_DIR="{{ backup_n8n_restore_dir }}"
+ROLLBACK_FILE="${ROLLBACK_DIR}/rollback-$(date -u +%Y%m%dT%H%M%SZ)-$$.dump"
+MUTATION_STARTED=0
+ROLLBACK_READY=0
+ROLLBACK_RUNNING=0
 
-if [[ ! -f "${DUMP_FILE}" ]]; then
-  echo "ERROR: n8n dump not found: ${DUMP_FILE}" >&2
-  exit 1
-fi
+[[ "${GENERATION_DIR}" == /* && -d "${GENERATION_DIR}" && ! -L "${GENERATION_DIR}" ]] \
+  || { echo "ERROR: restore source must be an explicit directory" >&2; exit 1; }
+[[ -s "${DUMP_FILE}" ]] || { echo "ERROR: n8n dump is missing or empty" >&2; exit 1; }
+docker inspect "${POSTGRES_CONTAINER}" "${N8N_CONTAINER}" >/dev/null
+docker exec "${POSTGRES_CONTAINER}" pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" >/dev/null
+docker exec -i "${POSTGRES_CONTAINER}" pg_restore -l < "${DUMP_FILE}" >/dev/null
+mkdir -p -- "${ROLLBACK_DIR}"
+[[ "$(realpath -e -- "${ROLLBACK_DIR}")" == "${ROLLBACK_DIR}" ]] \
+  || { echo "ERROR: unsafe n8n rollback directory" >&2; exit 1; }
 
-if [[ ! -s "${DUMP_FILE}" ]]; then
-  echo "ERROR: n8n dump is empty: ${DUMP_FILE}" >&2
-  exit 1
-fi
+rollback() {
+  ROLLBACK_RUNNING=1
+  echo "ERROR: n8n restore failed; attempting database rollback" >&2
+  docker exec "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d postgres \
+    -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${POSTGRES_DB}\";" \
+    -c "CREATE DATABASE \"${POSTGRES_DB}\" OWNER \"${POSTGRES_USER}\";" \
+    && docker exec -i "${POSTGRES_CONTAINER}" pg_restore -U "${POSTGRES_USER}" \
+      -d "${POSTGRES_DB}" --no-owner --no-privileges < "${ROLLBACK_FILE}" \
+    && docker start "${N8N_CONTAINER}" >/dev/null \
+    && docker exec "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
+      -tAc "SELECT 1" | grep -qx 1 \
+    || { echo "CRITICAL: n8n rollback failed; manual recovery is required" >&2; return 1; }
+}
 
-docker stop "{{ n8n_container_name }}"
+on_exit() {
+  local exit_code=$?
+  if [[ "${exit_code}" -ne 0 && "${MUTATION_STARTED}" -eq 1 \
+     && "${ROLLBACK_READY}" -eq 1 && "${ROLLBACK_RUNNING}" -eq 0 ]]; then
+    rollback || exit 2
+  fi
+  exit "${exit_code}"
+}
+trap on_exit EXIT
 
-docker exec "{{ n8n_postgres_container_name }}" \
-  psql \
-  -U "{{ n8n_postgres_user }}" \
-  -d postgres \
-  -c "DROP DATABASE IF EXISTS {{ n8n_postgres_db }};"
+docker exec "${POSTGRES_CONTAINER}" pg_dump -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -Fc > "${ROLLBACK_FILE}"
+[[ -s "${ROLLBACK_FILE}" ]] || { echo "ERROR: n8n rollback dump is empty" >&2; exit 1; }
+docker exec -i "${POSTGRES_CONTAINER}" pg_restore -l < "${ROLLBACK_FILE}" >/dev/null
+chmod 0600 "${ROLLBACK_FILE}"
+ROLLBACK_READY=1
 
-docker exec "{{ n8n_postgres_container_name }}" \
-  psql \
-  -U "{{ n8n_postgres_user }}" \
-  -d postgres \
-  -c "CREATE DATABASE {{ n8n_postgres_db }} OWNER {{ n8n_postgres_user }};"
-
-docker exec -i "{{ n8n_postgres_container_name }}" \
-  pg_restore \
-  -U "{{ n8n_postgres_user }}" \
-  -d "{{ n8n_postgres_db }}" \
-  --no-owner \
-  --no-privileges \
-  < "${DUMP_FILE}"
-
-docker start "{{ n8n_container_name }}"
-
-echo "n8n restore completed successfully."
+docker stop "${N8N_CONTAINER}" >/dev/null
+MUTATION_STARTED=1
+docker exec "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d postgres \
+  -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${POSTGRES_DB}\";" \
+  -c "CREATE DATABASE \"${POSTGRES_DB}\" OWNER \"${POSTGRES_USER}\";"
+docker exec -i "${POSTGRES_CONTAINER}" pg_restore -U "${POSTGRES_USER}" \
+  -d "${POSTGRES_DB}" --no-owner --no-privileges < "${DUMP_FILE}"
+docker exec "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
+  -tAc "SELECT 1" | grep -qx 1
+docker start "${N8N_CONTAINER}" >/dev/null
+[[ "$(docker inspect -f '{{ "{{.State.Running}}" }}' "${N8N_CONTAINER}")" == "true" ]]
+MUTATION_STARTED=0
+echo "n8n restore and local validation completed successfully"

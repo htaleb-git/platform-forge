@@ -1,450 +1,113 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-# -------------------------------------------------------------------
-# Configuration
-# -------------------------------------------------------------------
-
+[[ $# -eq 1 ]] || { echo "Usage: $0 <validated-generation-directory>" >&2; exit 2; }
+GENERATION_DIR="$1"
+APPLICATION_DIR="${GENERATION_DIR}/{{ backup_gitlab_application_subdir }}"
+CONFIG_DIR="${GENERATION_DIR}/{{ backup_gitlab_config_subdir }}"
+METADATA_DIR="${GENERATION_DIR}/{{ backup_gitlab_metadata_subdir }}"
+BACKUP_ARCHIVE="${APPLICATION_DIR}/{{ backup_gitlab_dump_name }}"
 GITLAB_CONTAINER="{{ gitlab_container_name }}"
-
 GITLAB_APP_DIR="{{ gitlab_app_dir }}"
 GITLAB_DATA_DIR="{{ gitlab_data_store_dir }}"
 GITLAB_CONFIG_DIR="{{ gitlab_config_dir }}"
+ROLLBACK_DIR="{{ backup_gitlab_restore_dir }}/rollback-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+ROLLBACK_DATA="${ROLLBACK_DIR}/data"
+ROLLBACK_CONFIG="${ROLLBACK_DIR}/config"
+MUTATION_STARTED=0
+ROLLBACK_READY=0
+ROLLBACK_RUNNING=0
 
-APPLICATION_DIR="{{ backup_gitlab_application_dir }}"
-CONFIG_DIR="{{ backup_gitlab_config_dir }}"
-METADATA_DIR="{{ backup_gitlab_metadata_dir }}"
+[[ "${GENERATION_DIR}" == /* && -d "${GENERATION_DIR}" && ! -L "${GENERATION_DIR}" ]] \
+  || { echo "ERROR: restore source must be an explicit directory" >&2; exit 1; }
+[[ -s "${BACKUP_ARCHIVE}" \
+   && -s "${CONFIG_DIR}/gitlab.rb" \
+   && -s "${CONFIG_DIR}/gitlab-secrets.json" \
+   && -s "${METADATA_DIR}/{{ backup_gitlab_filename_metadata }}" \
+   && -s "${METADATA_DIR}/{{ backup_gitlab_version_file }}" ]] \
+  || { echo "ERROR: incomplete GitLab restore source" >&2; exit 1; }
 
-echo "============================================================"
-echo " GitLab Restore"
-echo "============================================================"
-echo
-echo "Backup source: {{ backup_gitlab_dir }}"
-echo
-
-# -------------------------------------------------------------------
-# Preconditions
-# -------------------------------------------------------------------
-
-if ! docker inspect "${GITLAB_CONTAINER}" >/dev/null 2>&1; then
-  echo "ERROR: GitLab container '${GITLAB_CONTAINER}' does not exist." >&2
-  exit 1
-fi
-
-if [[ "$(docker inspect \
-    --format '{{ "{{.State.Running}}" }}' \
-    "${GITLAB_CONTAINER}" 2>/dev/null || true)" != "true" ]]; then
-
-  echo "ERROR: GitLab container '${GITLAB_CONTAINER}' is not running." >&2
-  exit 1
-fi
-
-# -------------------------------------------------------------------
-# First confirmation
-# -------------------------------------------------------------------
-
-echo "WARNING:"
-echo "This operation will REPLACE the current GitLab state."
-echo "Repositories, database, users and configuration may be overwritten."
-echo
-
-read -r -p "Type RESTORE to continue: " confirmation
-
-if [[ "${confirmation}" != "RESTORE" ]]; then
-  echo "Restore cancelled."
-  exit 1
-fi
-
-if [[ ! -d "{{ backup_gitlab_dir }}" ]]; then
-  echo "ERROR: GitLab backup directory does not exist: {{ backup_gitlab_dir }}" >&2
-  exit 1
-fi
-
-# -------------------------------------------------------------------
-# Validate metadata first
-# -------------------------------------------------------------------
-
-if [[ ! -f "${METADATA_DIR}/{{ backup_gitlab_filename_metadata }}" ]]; then
-  echo "ERROR: GitLab backup filename metadata missing." >&2
-  exit 1
-fi
-
-if [[ ! -f "${METADATA_DIR}/{{ backup_gitlab_version_file }}" ]]; then
-  echo "ERROR: GitLab version metadata missing." >&2
-  exit 1
-fi
-
-if [[ ! -f "${CONFIG_DIR}/gitlab.rb" ]]; then
-  echo "ERROR: gitlab.rb missing." >&2
-  exit 1
-fi
-
-if [[ ! -f "${CONFIG_DIR}/gitlab-secrets.json" ]]; then
-  echo "ERROR: gitlab-secrets.json missing." >&2
-  exit 1
-fi
-
-# -------------------------------------------------------------------
-# Retrieve original GitLab backup filename
-# -------------------------------------------------------------------
-
-ORIGINAL_BACKUP_FILENAME="$(
-  tr -d '\r\n' \
-    < "${METADATA_DIR}/{{ backup_gitlab_filename_metadata }}"
-)"
-
-if [[ -z "${ORIGINAL_BACKUP_FILENAME}" ]]; then
-  echo "ERROR: GitLab backup filename metadata is empty." >&2
-  exit 1
-fi
-
+ORIGINAL_BACKUP_FILENAME="$(tr -d '\r\n' < "${METADATA_DIR}/{{ backup_gitlab_filename_metadata }}")"
+[[ "${ORIGINAL_BACKUP_FILENAME}" =~ ^[A-Za-z0-9._-]+_gitlab_backup\.tar$ ]] \
+  || { echo "ERROR: unsafe GitLab backup filename metadata" >&2; exit 1; }
 BACKUP_ID="${ORIGINAL_BACKUP_FILENAME%_gitlab_backup.tar}"
 
-if [[ "${BACKUP_ID}" == "${ORIGINAL_BACKUP_FILENAME}" ]]; then
-  echo "ERROR: invalid GitLab backup filename: ${ORIGINAL_BACKUP_FILENAME}" >&2
-  exit 1
-fi
+docker inspect "${GITLAB_CONTAINER}" >/dev/null
+[[ "$(docker inspect -f '{{ "{{.State.Running}}" }}' "${GITLAB_CONTAINER}")" == "true" ]] \
+  || { echo "ERROR: GitLab container is not running" >&2; exit 1; }
+CURRENT_INFO="$(docker exec "${GITLAB_CONTAINER}" gitlab-rake gitlab:env:info)"
+CURRENT_VERSION="$(awk '/GitLab information/{seen=1;next} seen && /^Version:/{print $2;exit}' <<< "${CURRENT_INFO}")"
+BACKUP_VERSION="$(awk '/GitLab information/{seen=1;next} seen && /^Version:/{print $2;exit}' "${METADATA_DIR}/{{ backup_gitlab_version_file }}")"
+[[ -n "${CURRENT_VERSION}" && "${CURRENT_VERSION}" == "${BACKUP_VERSION}" ]] \
+  || { echo "ERROR: GitLab version mismatch or missing version metadata" >&2; exit 1; }
+[[ "${GITLAB_DATA_DIR}" == "{{ gitlab_data_dir }}/"* && "${GITLAB_DATA_DIR}" != "{{ gitlab_data_dir }}" ]] \
+  || { echo "ERROR: unsafe GitLab data directory" >&2; exit 1; }
+[[ -d "${GITLAB_DATA_DIR}" && ! -L "${GITLAB_DATA_DIR}" \
+   && -d "${GITLAB_CONFIG_DIR}" && ! -L "${GITLAB_CONFIG_DIR}" \
+   && -f "${GITLAB_APP_DIR}/compose.yml" ]] \
+  || { echo "ERROR: GitLab live paths are incomplete" >&2; exit 1; }
+mkdir -p -- "{{ backup_gitlab_restore_dir }}"
 
-echo
-echo "GitLab backup file : ${ORIGINAL_BACKUP_FILENAME}"
-echo "GitLab backup ID   : ${BACKUP_ID}"
+rollback() {
+  ROLLBACK_RUNNING=1
+  echo "ERROR: GitLab restore failed; attempting filesystem rollback" >&2
+  docker rm -f "${GITLAB_CONTAINER}" >/dev/null 2>&1 || true
+  find "${GITLAB_DATA_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + \
+    && cp -a -- "${ROLLBACK_DATA}/." "${GITLAB_DATA_DIR}/" \
+    && cp -a -- "${ROLLBACK_CONFIG}/gitlab.rb" "${GITLAB_CONFIG_DIR}/gitlab.rb" \
+    && cp -a -- "${ROLLBACK_CONFIG}/gitlab-secrets.json" "${GITLAB_CONFIG_DIR}/gitlab-secrets.json" \
+    && chmod 0600 "${GITLAB_CONFIG_DIR}/gitlab-secrets.json" \
+    && docker compose -f "${GITLAB_APP_DIR}/compose.yml" up -d gitlab \
+    || { echo "CRITICAL: GitLab rollback failed; manual recovery is required" >&2; return 1; }
+}
 
-# -------------------------------------------------------------------
-# Validate backup archive
-#
-# Current backup format stores the archive under backup_gitlab_dump_name
-# and restores its original GitLab filename later.
-# -------------------------------------------------------------------
+on_exit() {
+  local exit_code=$?
+  if [[ "${exit_code}" -ne 0 && "${MUTATION_STARTED}" -eq 1 \
+     && "${ROLLBACK_READY}" -eq 1 && "${ROLLBACK_RUNNING}" -eq 0 ]]; then
+    rollback || exit 2
+  fi
+  exit "${exit_code}"
+}
+trap on_exit EXIT
 
-BACKUP_ARCHIVE="${APPLICATION_DIR}/{{ backup_gitlab_dump_name }}"
-
-if [[ ! -f "${BACKUP_ARCHIVE}" ]]; then
-  echo "ERROR: GitLab backup archive missing: ${BACKUP_ARCHIVE}" >&2
-  exit 1
-fi
-
-# -------------------------------------------------------------------
-# Display backup metadata
-# -------------------------------------------------------------------
-
-echo
-echo "Backup GitLab metadata:"
-echo "------------------------------------------------------------"
-cat "${METADATA_DIR}/{{ backup_gitlab_version_file }}"
-echo "------------------------------------------------------------"
-
-# -------------------------------------------------------------------
-# Version safety check
-# -------------------------------------------------------------------
-
-#
-# Important:
-# Capture docker output FIRST.
-# Do not pipe docker exec directly to an awk that exits early while
-# 'set -o pipefail' is active.
-#
-
-CURRENT_GITLAB_INFO="$(
-  docker exec "${GITLAB_CONTAINER}" \
-    gitlab-rake gitlab:env:info
-)"
-
-CURRENT_GITLAB_VERSION="$(
-  printf '%s\n' "${CURRENT_GITLAB_INFO}" |
-  awk '
-    /GitLab information/ {
-      in_gitlab=1
-      next
-    }
-
-    in_gitlab && /^Version:/ {
-      print $2
-      in_gitlab=0
-    }
-  '
-)"
-
-BACKUP_GITLAB_VERSION="$(
-  awk '
-    /GitLab information/ {
-      in_gitlab=1
-      next
-    }
-
-    in_gitlab && /^Version:/ {
-      print $2
-      in_gitlab=0
-    }
-  ' "${METADATA_DIR}/{{ backup_gitlab_version_file }}"
-)"
-
-echo
-echo "Current GitLab version : ${CURRENT_GITLAB_VERSION:-unknown}"
-echo "Backup GitLab version  : ${BACKUP_GITLAB_VERSION:-unknown}"
-
-if [[ -z "${CURRENT_GITLAB_VERSION}" \
-   || -z "${BACKUP_GITLAB_VERSION}" ]]; then
-
-  echo "ERROR: unable to determine GitLab versions." >&2
-  exit 1
-fi
-
-if [[ "${CURRENT_GITLAB_VERSION}" != "${BACKUP_GITLAB_VERSION}" ]]; then
-
-  echo "ERROR: GitLab version mismatch." >&2
-  echo "Current : ${CURRENT_GITLAB_VERSION}" >&2
-  echo "Backup  : ${BACKUP_GITLAB_VERSION}" >&2
-  exit 1
-fi
-
-echo "Version check passed."
-
-# -------------------------------------------------------------------
-# Final destructive confirmation
-# -------------------------------------------------------------------
-
-echo
-echo "============================================================"
-echo " DANGER ZONE"
-echo "============================================================"
-echo
-echo "The following GitLab DATA directory will be erased:"
-echo
-echo "  ${GITLAB_DATA_DIR}"
-echo
-echo "Backup source:"
-echo
-echo "  {{ backup_gitlab_dir }}"
-echo
-
-read -r -p "Type ERASE-AND-RESTORE to continue: " confirmation
-
-if [[ "${confirmation}" != "ERASE-AND-RESTORE" ]]; then
-  echo "Restore cancelled."
-  exit 1
-fi
-
-# -------------------------------------------------------------------
-# Validate destructive target
-# -------------------------------------------------------------------
-
-if [[ -z "${GITLAB_DATA_DIR}" \
-   || "${GITLAB_DATA_DIR}" == "/" \
-   || "${GITLAB_DATA_DIR}" == "/srv" \
-   || "${GITLAB_DATA_DIR}" == "{{ gitlab_data_dir }}" \
-   || "${GITLAB_DATA_DIR}" != "{{ gitlab_data_dir }}/"* ]]; then
-
-  echo "ERROR: unsafe GitLab data directory: '${GITLAB_DATA_DIR}'" >&2
-  exit 1
-fi
-
-# -------------------------------------------------------------------
-# Stop and remove current GitLab container
-# -------------------------------------------------------------------
-
-echo
-echo "Stopping current GitLab instance..."
+mkdir -- "${ROLLBACK_DIR}" "${ROLLBACK_DATA}" "${ROLLBACK_CONFIG}"
+cp -a -- "${GITLAB_DATA_DIR}/." "${ROLLBACK_DATA}/"
+cp -a -- "${GITLAB_CONFIG_DIR}/gitlab.rb" "${ROLLBACK_CONFIG}/gitlab.rb"
+cp -a -- "${GITLAB_CONFIG_DIR}/gitlab-secrets.json" "${ROLLBACK_CONFIG}/gitlab-secrets.json"
+chmod 0700 "${ROLLBACK_DIR}" "${ROLLBACK_DATA}" "${ROLLBACK_CONFIG}"
+chmod 0600 "${ROLLBACK_CONFIG}/gitlab-secrets.json"
+ROLLBACK_READY=1
 
 docker stop "${GITLAB_CONTAINER}" >/dev/null
 docker rm "${GITLAB_CONTAINER}" >/dev/null
+MUTATION_STARTED=1
+find "${GITLAB_DATA_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+install -m 0644 "${CONFIG_DIR}/gitlab.rb" "${GITLAB_CONFIG_DIR}/gitlab.rb"
+install -m 0600 "${CONFIG_DIR}/gitlab-secrets.json" "${GITLAB_CONFIG_DIR}/gitlab-secrets.json"
+docker compose -f "${GITLAB_APP_DIR}/compose.yml" up -d gitlab
 
-# -------------------------------------------------------------------
-# Clean existing GitLab application data
-# -------------------------------------------------------------------
-
-echo "Removing existing GitLab application data:"
-echo "  ${GITLAB_DATA_DIR}"
-
-#
-# find handles normal AND hidden files/directories.
-# It also avoids deleting GITLAB_DATA_DIR itself.
-#
-
-find "${GITLAB_DATA_DIR}" \
-  -mindepth 1 \
-  -maxdepth 1 \
-  -exec rm -rf -- {} +
-
-# -------------------------------------------------------------------
-# Restore GitLab configuration and secrets
-# -------------------------------------------------------------------
-
-echo "Restoring GitLab configuration..."
-
-cp -a \
-  "${CONFIG_DIR}/gitlab.rb" \
-  "${GITLAB_CONFIG_DIR}/gitlab.rb"
-
-cp -a \
-  "${CONFIG_DIR}/gitlab-secrets.json" \
-  "${GITLAB_CONFIG_DIR}/gitlab-secrets.json"
-
-chmod 600 "${GITLAB_CONFIG_DIR}/gitlab-secrets.json"
-
-# -------------------------------------------------------------------
-# Recreate fresh GitLab container
-# -------------------------------------------------------------------
-
-echo "Creating fresh GitLab ${CURRENT_GITLAB_VERSION} instance..."
-
-docker compose \
-  -f "${GITLAB_APP_DIR}/compose.yml" \
-  up -d gitlab
-
-# -------------------------------------------------------------------
-# Wait until container can execute GitLab commands
-# -------------------------------------------------------------------
-
-echo "Waiting for fresh GitLab initialization..."
-
-READY=false
-
-for attempt in $(seq 1 60); do
-
-  if docker exec "${GITLAB_CONTAINER}" \
-       gitlab-ctl status >/dev/null 2>&1; then
-
-    READY=true
-    echo "GitLab services are available."
-    break
-  fi
-
-  echo "GitLab initialization in progress (${attempt}/60)..."
+READY=0
+for _ in $(seq 1 60); do
+  if docker exec "${GITLAB_CONTAINER}" gitlab-ctl status >/dev/null 2>&1; then READY=1; break; fi
   sleep 10
 done
-
-if [[ "${READY}" != "true" ]]; then
-  echo "ERROR: GitLab did not initialize in time." >&2
-  exit 1
-fi
-
-# -------------------------------------------------------------------
-# Restore configuration before native restore
-# -------------------------------------------------------------------
-
-echo "Applying GitLab configuration..."
-
-docker exec "${GITLAB_CONTAINER}" \
-  gitlab-ctl reconfigure
-
-# -------------------------------------------------------------------
-# Copy native GitLab backup archive
-# -------------------------------------------------------------------
-
-echo "Copying GitLab backup archive..."
-
-docker cp \
-  "${BACKUP_ARCHIVE}" \
-  "${GITLAB_CONTAINER}:/var/opt/gitlab/backups/${ORIGINAL_BACKUP_FILENAME}"
-
-docker exec "${GITLAB_CONTAINER}" \
-  chown git:git \
-  "/var/opt/gitlab/backups/${ORIGINAL_BACKUP_FILENAME}"
-
-# -------------------------------------------------------------------
-# Stop services connected to database
-# -------------------------------------------------------------------
-
-echo "Stopping Puma and Sidekiq..."
-
-docker exec "${GITLAB_CONTAINER}" \
-  gitlab-ctl stop puma
-
-docker exec "${GITLAB_CONTAINER}" \
-  gitlab-ctl stop sidekiq
-
-echo
-echo "GitLab service state before restore:"
-
-docker exec "${GITLAB_CONTAINER}" \
-  gitlab-ctl status || true
-
-# -------------------------------------------------------------------
-# Native GitLab restore
-# -------------------------------------------------------------------
-
-echo
-echo "============================================================"
-echo " Starting GitLab native restore"
-echo " Backup ID: ${BACKUP_ID}"
-echo "============================================================"
-echo
-
-docker exec \
-  -e GITLAB_ASSUME_YES=1 \
-  "${GITLAB_CONTAINER}" \
-  gitlab-backup restore \
-  BACKUP="${BACKUP_ID}"
-
-echo
-echo "GitLab native restore completed."
-
-# -------------------------------------------------------------------
-# Restart entire Docker container
-# -------------------------------------------------------------------
-
-echo "Restarting GitLab container..."
-
+[[ "${READY}" -eq 1 ]] || { echo "ERROR: GitLab did not initialize in time" >&2; exit 1; }
+docker exec "${GITLAB_CONTAINER}" gitlab-ctl reconfigure
+docker cp "${BACKUP_ARCHIVE}" "${GITLAB_CONTAINER}:/var/opt/gitlab/backups/${ORIGINAL_BACKUP_FILENAME}"
+docker exec "${GITLAB_CONTAINER}" chown git:git "/var/opt/gitlab/backups/${ORIGINAL_BACKUP_FILENAME}"
+docker exec "${GITLAB_CONTAINER}" gitlab-ctl stop puma
+docker exec "${GITLAB_CONTAINER}" gitlab-ctl stop sidekiq
+docker exec -e GITLAB_ASSUME_YES=1 "${GITLAB_CONTAINER}" gitlab-backup restore "BACKUP=${BACKUP_ID}"
 docker restart "${GITLAB_CONTAINER}" >/dev/null
 
-# -------------------------------------------------------------------
-# Wait after restore
-# -------------------------------------------------------------------
-
-echo "Waiting for restored GitLab..."
-
-READY=false
-
-for attempt in $(seq 1 60); do
-
-  HEALTH="$(
-    docker inspect \
-      --format '{{ "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" }}' \
-      "${GITLAB_CONTAINER}" 2>/dev/null || true
-  )"
-
-  if [[ "${HEALTH}" == "healthy" ]]; then
-    READY=true
-    echo "GitLab is healthy."
-    break
-  fi
-
-  echo "GitLab state: ${HEALTH:-unknown} (${attempt}/60)"
+HEALTHY=0
+for _ in $(seq 1 60); do
+  HEALTH="$(docker inspect -f '{{ "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" }}' "${GITLAB_CONTAINER}" 2>/dev/null || true)"
+  if [[ "${HEALTH}" == "healthy" || "${HEALTH}" == "running" ]]; then HEALTHY=1; break; fi
   sleep 10
 done
-
-if [[ "${READY}" != "true" ]]; then
-  echo "WARNING: GitLab did not reach Docker healthy state in time." >&2
-fi
-
-# -------------------------------------------------------------------
-# GitLab integrity check
-# -------------------------------------------------------------------
-
-echo
-echo "Running GitLab checks..."
-
-docker exec "${GITLAB_CONTAINER}" \
-  gitlab-rake gitlab:check SANITIZE=true
-
-# -------------------------------------------------------------------
-# Final result
-# -------------------------------------------------------------------
-
-echo
-echo "============================================================"
-echo " GitLab restore completed successfully"
-echo "============================================================"
-echo
-echo "Backup source: {{ backup_gitlab_dir }}"
-echo "Version : ${BACKUP_GITLAB_VERSION}"
-echo
-echo "MANDATORY functional validation:"
-echo
-echo "  1. Open GitLab web UI"
-echo "  2. Check users and groups"
-echo "  3. Check platform/devops-platform"
-echo "  4. git fetch origin"
-echo "  5. git log --oneline origin/develop -5"
-echo "  6. Test SSH clone/push"
-echo
+[[ "${HEALTHY}" -eq 1 ]] || { echo "ERROR: restored GitLab did not become healthy" >&2; exit 1; }
+docker exec "${GITLAB_CONTAINER}" gitlab-rake gitlab:check SANITIZE=true
+MUTATION_STARTED=0
+echo "GitLab restore and local validation completed successfully"

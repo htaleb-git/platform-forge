@@ -26,7 +26,7 @@ usage() {
 Usage:
   ./scripts/run-playbook.sh <target> <command> [ansible-playbook options]
   ./scripts/run-playbook.sh <target> operation <application> <operation> [options]
-  ./scripts/run-playbook.sh <target> restore <application> [options]
+  ./scripts/run-playbook.sh <target> restore <application> <snapshot-id> [options]
 
 Canonical commands:
   init          01-init-server.yml
@@ -34,7 +34,7 @@ Canonical commands:
   runtime       03-runtime.yml
   applications  04-applications.yml
   backup        05-backup.yml
-  restore       06-restore.yml (requires an application)
+  restore       06-restore.yml (requires an application and exact snapshot ID)
   maintenance   07-maintenance.yml
   monitoring    08-monitoring.yml
 
@@ -50,7 +50,7 @@ Examples:
   ./scripts/run-playbook.sh platform01 applications --tags n8n
   ./scripts/run-playbook.sh platform01 operation n8n status
   ./scripts/run-playbook.sh platform01 maintenance --check --diff
-  ./scripts/run-playbook.sh platform01 restore n8n
+  ./scripts/run-playbook.sh platform01 restore n8n 0123456789abcdef
 
 The target "all" is rejected. Restore selects only explicitly tagged,
 fail-closed tasks and still requires interactive destructive confirmations.
@@ -146,19 +146,26 @@ case "${COMMAND}" in
     ;;
 
   restore)
-    [[ $# -ge 1 && "$1" != -* ]] \
-      || error "Restore requires an explicit application."
+    [[ $# -ge 2 && "$1" != -* && "$2" != -* ]] \
+      || error "Restore requires an explicit application and snapshot ID."
 
     APPLICATION="$1"
-    shift
+    SNAPSHOT_ID="$2"
+    shift 2
     reject_selection_options "$@"
 
     contains "${APPLICATION}" "${ALLOWED_RESTORE_APPS[@]}" \
       || error "Unsupported restore application: '${APPLICATION}'."
+    [[ "${SNAPSHOT_ID}" =~ ^[A-Fa-f0-9]{8,64}$ ]] \
+      || error "The Restic snapshot ID must be an explicit hexadecimal identifier (8-64 characters)."
 
     PLAYBOOK="${PLAYBOOKS[restore]}"
-    COMMAND_DESCRIPTION="restore ${APPLICATION}"
-    SPECIAL_ARGS+=(--tags "restore-${APPLICATION}")
+    COMMAND_DESCRIPTION="restore ${APPLICATION} from snapshot ${SNAPSHOT_ID}"
+    SPECIAL_ARGS+=(
+      --tags "restore-${APPLICATION}"
+      --extra-vars "restore_application=${APPLICATION}"
+      --extra-vars "restore_snapshot_id=${SNAPSHOT_ID}"
+    )
     ;;
 
   *)

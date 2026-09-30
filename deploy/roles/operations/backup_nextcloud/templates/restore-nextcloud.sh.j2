@@ -1,126 +1,73 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-CONTAINER="{{ backup_nextcloud_container_name }}"
-
-BACKUP_DIR="{{ backup_nextcloud_dir }}"
-
-BACKUP_DB="${BACKUP_DIR}/{{ backup_nextcloud_db_name }}"
-BACKUP_CONFIG="${BACKUP_DIR}/{{ backup_nextcloud_config_name }}"
-
+[[ $# -eq 1 ]] || { echo "Usage: $0 <validated-generation-directory>" >&2; exit 2; }
+GENERATION_DIR="$1"
+BACKUP_DB="${GENERATION_DIR}/{{ backup_nextcloud_db_name }}"
+BACKUP_CONFIG="${GENERATION_DIR}/{{ backup_nextcloud_config_name }}"
 TARGET_DB="{{ backup_nextcloud_data_dir }}/owncloud.db"
 TARGET_CONFIG="{{ backup_nextcloud_config_file }}"
-
-ROLLBACK_DIR="/tmp/nextcloud-restore-rollback"
-
+CONTAINER="{{ backup_nextcloud_container_name }}"
+ROLLBACK_DIR="{{ backup_nextcloud_restore_dir }}/rollback-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+MUTATION_STARTED=0
+ROLLBACK_READY=0
+ROLLBACK_RUNNING=0
 MAINTENANCE_ENABLED=0
 
-disable_maintenance() {
-  if [[ "${MAINTENANCE_ENABLED}" -eq 1 ]]; then
-    docker exec -u www-data "${CONTAINER}" \
-      php occ maintenance:mode --off || true
+[[ "${GENERATION_DIR}" == /* && -d "${GENERATION_DIR}" && ! -L "${GENERATION_DIR}" ]] \
+  || { echo "ERROR: restore source must be an explicit directory" >&2; exit 1; }
+[[ -s "${BACKUP_DB}" && -s "${BACKUP_CONFIG}" ]] \
+  || { echo "ERROR: incomplete Nextcloud restore source" >&2; exit 1; }
+sqlite3 "${BACKUP_DB}" "PRAGMA integrity_check;" | grep -qx ok
+docker inspect "${CONTAINER}" >/dev/null
+docker exec -u www-data "${CONTAINER}" php occ status >/dev/null
+[[ -d "$(dirname -- "${TARGET_DB}")" && ! -L "$(dirname -- "${TARGET_DB}")" \
+   && -d "$(dirname -- "${TARGET_CONFIG}")" && ! -L "$(dirname -- "${TARGET_CONFIG}")" ]] \
+  || { echo "ERROR: Nextcloud target directories are missing" >&2; exit 1; }
+mkdir -p -- "{{ backup_nextcloud_restore_dir }}"
 
-    MAINTENANCE_ENABLED=0
-  fi
+rollback() {
+  ROLLBACK_RUNNING=1
+  echo "ERROR: Nextcloud restore failed; attempting database/configuration rollback" >&2
+  [[ -f "${ROLLBACK_DIR}/owncloud.db" && -f "${ROLLBACK_DIR}/config.php" ]] \
+    && cp -a -- "${ROLLBACK_DIR}/owncloud.db" "${TARGET_DB}" \
+    && cp -a -- "${ROLLBACK_DIR}/config.php" "${TARGET_CONFIG}" \
+    && chown "{{ nextcloud_container_uid }}:{{ nextcloud_container_gid }}" "${TARGET_DB}" "${TARGET_CONFIG}" \
+    && chmod 0640 "${TARGET_DB}" "${TARGET_CONFIG}" \
+    && sqlite3 "${TARGET_DB}" "PRAGMA integrity_check;" | grep -qx ok \
+    || { echo "CRITICAL: Nextcloud rollback failed; manual recovery is required" >&2; return 1; }
 }
 
-cleanup() {
+on_exit() {
   local exit_code=$?
-
-  if [[ "${exit_code}" -ne 0 ]]; then
-    echo "ERROR: Nextcloud restore failed." >&2
+  if [[ "${exit_code}" -ne 0 && "${MUTATION_STARTED}" -eq 1 \
+     && "${ROLLBACK_READY}" -eq 1 && "${ROLLBACK_RUNNING}" -eq 0 ]]; then
+    rollback || exit 2
   fi
-
-  disable_maintenance
-
+  if [[ "${MAINTENANCE_ENABLED}" -eq 1 ]]; then
+    docker exec -u www-data "${CONTAINER}" php occ maintenance:mode --off \
+      || { echo "CRITICAL: failed to disable Nextcloud maintenance mode" >&2; exit 2; }
+  fi
   exit "${exit_code}"
 }
+trap on_exit EXIT
 
-trap cleanup EXIT
+mkdir -- "${ROLLBACK_DIR}"
+[[ -f "${TARGET_DB}" && -f "${TARGET_CONFIG}" ]] \
+  || { echo "ERROR: current Nextcloud database/configuration cannot be preserved" >&2; exit 1; }
+cp -a -- "${TARGET_DB}" "${ROLLBACK_DIR}/owncloud.db"
+cp -a -- "${TARGET_CONFIG}" "${ROLLBACK_DIR}/config.php"
+sqlite3 "${ROLLBACK_DIR}/owncloud.db" "PRAGMA integrity_check;" | grep -qx ok
+ROLLBACK_READY=1
 
-if [[ ! -f "${BACKUP_DB}" ]]; then
-  echo "ERROR: Nextcloud backup database not found: ${BACKUP_DB}" >&2
-  exit 1
-fi
-
-if [[ ! -s "${BACKUP_DB}" ]]; then
-  echo "ERROR: Nextcloud backup database is empty: ${BACKUP_DB}" >&2
-  exit 1
-fi
-
-if [[ ! -f "${BACKUP_CONFIG}" ]]; then
-  echo "ERROR: Nextcloud backup config not found: ${BACKUP_CONFIG}" >&2
-  exit 1
-fi
-
-if [[ ! -s "${BACKUP_CONFIG}" ]]; then
-  echo "ERROR: Nextcloud backup config is empty: ${BACKUP_CONFIG}" >&2
-  exit 1
-fi
-
-echo "Checking backup SQLite database"
-
-if ! sqlite3 "${BACKUP_DB}" "PRAGMA integrity_check;" | grep -qx "ok"; then
-  echo "ERROR: Nextcloud backup SQLite integrity check failed." >&2
-  exit 1
-fi
-
-echo "Preparing rollback directory"
-
-rm -rf "${ROLLBACK_DIR}"
-mkdir -p "${ROLLBACK_DIR}"
-
-if [[ -f "${TARGET_DB}" ]]; then
-  cp "${TARGET_DB}" "${ROLLBACK_DIR}/owncloud.db"
-fi
-
-if [[ -f "${TARGET_CONFIG}" ]]; then
-  cp "${TARGET_CONFIG}" "${ROLLBACK_DIR}/config.php"
-fi
-
-echo "Enabling Nextcloud maintenance mode"
-
-docker exec -u www-data "${CONTAINER}" \
-  php occ maintenance:mode --on
-
+docker exec -u www-data "${CONTAINER}" php occ maintenance:mode --on
 MAINTENANCE_ENABLED=1
-
-echo "Restoring Nextcloud SQLite database"
-
-cp "${BACKUP_DB}" "${TARGET_DB}"
-
-chown "{{ nextcloud_container_uid }}:{{ nextcloud_container_gid }}" \
-  "${TARGET_DB}"
-
-chmod "0640" "${TARGET_DB}"
-
-echo "Restoring Nextcloud configuration"
-
-cp "${BACKUP_CONFIG}" "${TARGET_CONFIG}"
-
-chown "{{ nextcloud_container_uid }}:{{ nextcloud_container_gid }}" \
-  "${TARGET_CONFIG}"
-
-chmod "0640" "${TARGET_CONFIG}"
-
-echo "Checking restored SQLite database"
-
-if ! sqlite3 "${TARGET_DB}" "PRAGMA integrity_check;" | grep -qx "ok"; then
-  echo "ERROR: restored Nextcloud SQLite integrity check failed." >&2
-  exit 1
-fi
-
-echo "Disabling Nextcloud maintenance mode"
-
-docker exec -u www-data "${CONTAINER}" \
-  php occ maintenance:mode --off
-
+MUTATION_STARTED=1
+install -o "{{ nextcloud_container_uid }}" -g "{{ nextcloud_container_gid }}" -m 0640 "${BACKUP_DB}" "${TARGET_DB}"
+install -o "{{ nextcloud_container_uid }}" -g "{{ nextcloud_container_gid }}" -m 0640 "${BACKUP_CONFIG}" "${TARGET_CONFIG}"
+sqlite3 "${TARGET_DB}" "PRAGMA integrity_check;" | grep -qx ok
+docker exec -u www-data "${CONTAINER}" php occ maintenance:mode --off
 MAINTENANCE_ENABLED=0
-
-echo "Checking Nextcloud status"
-
-docker exec -u www-data "${CONTAINER}" \
-  php occ status
-
-echo "Nextcloud restore completed successfully."
-echo "Rollback copy available in: ${ROLLBACK_DIR}"
+docker exec -u www-data "${CONTAINER}" php occ status >/dev/null
+MUTATION_STARTED=0
+echo "Nextcloud database/configuration restore completed; user files were not restored"

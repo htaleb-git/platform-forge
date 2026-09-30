@@ -12,3 +12,4 @@ backup_n8n_owner: root
 backup_n8n_group: root
 backup_n8n_dir_mode: "0700"
 backup_n8n_file_mode: "0600"
+backup_n8n_restore_dir: /var/lib/platform-forge/restore/n8n

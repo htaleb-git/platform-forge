@@ -17,3 +17,4 @@ backup_nextcloud_owner: root
 backup_nextcloud_group: root
 backup_nextcloud_dir_mode: "0700"
 backup_nextcloud_file_mode: "0600"
+backup_nextcloud_restore_dir: /var/lib/platform-forge/restore/nextcloud

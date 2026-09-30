@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+STAGING_ROOT="{{ restic_restore_staging_root }}"
+BACKUP_ROOT="{{ platform_backup_root }}"
+RESTIC_ENVIRONMENT_FILE="{{ restic_environment_file }}"
+ARTIFACT_LOCK="/run/lock/platform-forge-backup-artifacts.lock"
+RESTIC_LOCK="{{ restic_lock_file }}"
+
+usage() {
+  echo "Usage: $0 <gitlab|nextcloud|n8n|wordpress> <snapshot-id>" >&2
+}
+
+[[ $# -eq 2 ]] || { usage; exit 2; }
+APPLICATION="$1"
+SNAPSHOT_ID="$2"
+
+case "${APPLICATION}" in
+  gitlab|nextcloud|n8n|wordpress) ;;
+  *) echo "ERROR: unsupported restore application" >&2; exit 2 ;;
+esac
+
+[[ "${SNAPSHOT_ID}" =~ ^[A-Fa-f0-9]{8,64}$ ]] \
+  || { echo "ERROR: snapshot ID must be an explicit hexadecimal Restic identifier" >&2; exit 2; }
+[[ "${SNAPSHOT_ID,,}" != "latest" ]] \
+  || { echo "ERROR: implicit snapshot selection is forbidden" >&2; exit 2; }
+[[ "${STAGING_ROOT}" == /* && "${STAGING_ROOT}" != "/" ]] \
+  || { echo "ERROR: unsafe restore staging root" >&2; exit 1; }
+[[ "${BACKUP_ROOT}" == /* && "${BACKUP_ROOT}" != "/" ]] \
+  || { echo "ERROR: unsafe platform backup root" >&2; exit 1; }
+[[ -r "${RESTIC_ENVIRONMENT_FILE}" ]] \
+  || { echo "ERROR: Restic environment file is unavailable" >&2; exit 1; }
+
+umask 077
+mkdir -p -- "${STAGING_ROOT}"
+STAGING_ROOT_REAL="$(realpath -e -- "${STAGING_ROOT}")"
+[[ "${STAGING_ROOT_REAL}" == "${STAGING_ROOT}" ]] \
+  || { echo "ERROR: restore staging root must not be a symlink" >&2; exit 1; }
+
+OPERATION_ID="${APPLICATION}-${SNAPSHOT_ID,,}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+STAGING_DIR="${STAGING_ROOT}/${OPERATION_ID}"
+RESTORE_TARGET="${STAGING_DIR}/snapshot"
+mkdir -- "${STAGING_DIR}" "${RESTORE_TARGET}"
+
+cleanup() {
+  local exit_code=$?
+  if [[ -n "${STAGING_DIR:-}" && "${STAGING_DIR}" == "${STAGING_ROOT}/"* && -d "${STAGING_DIR}" ]]; then
+    rm -rf --one-file-system -- "${STAGING_DIR}"
+  fi
+  exit "${exit_code}"
+}
+trap cleanup EXIT
+
+exec 8>"${ARTIFACT_LOCK}"
+flock -n 8 || { echo "ERROR: another application artifact operation is running" >&2; exit 1; }
+exec 9>"${RESTIC_LOCK}"
+flock -n 9 || { echo "ERROR: another Restic operation is running" >&2; exit 1; }
+
+set -a
+# shellcheck disable=SC1090
+source "${RESTIC_ENVIRONMENT_FILE}"
+set +a
+
+SNAPSHOT_SOURCE="${BACKUP_ROOT#/}/${APPLICATION}"
+restic restore "${SNAPSHOT_ID}" \
+  --target "${RESTORE_TARGET}" \
+  --include "/${SNAPSHOT_SOURCE}"
+
+# Repository access is complete before application mutation; retain the
+# artifact lock but release the Restic repository lock.
+flock -u 9
+
+STAGED_APPLICATION="${RESTORE_TARGET}/${SNAPSHOT_SOURCE}"
+[[ -d "${STAGED_APPLICATION}" && ! -L "${STAGED_APPLICATION}" ]] \
+  || { echo "ERROR: staged application backup is missing or unsafe" >&2; exit 1; }
+[[ -L "${STAGED_APPLICATION}/current" ]] \
+  || { echo "ERROR: staged current symlink is missing" >&2; exit 1; }
+
+CURRENT_TARGET="$(readlink -- "${STAGED_APPLICATION}/current")"
+[[ "${CURRENT_TARGET}" =~ ^generations/[A-Za-z0-9._-]+$ ]] \
+  || { echo "ERROR: staged current symlink target is invalid" >&2; exit 1; }
+
+STAGED_APPLICATION_REAL="$(realpath -e -- "${STAGED_APPLICATION}")"
+GENERATION_DIR="$(realpath -e -- "${STAGED_APPLICATION}/current")"
+[[ "${GENERATION_DIR}" == "${STAGED_APPLICATION_REAL}/generations/"* \
+   && -d "${GENERATION_DIR}" && ! -L "${GENERATION_DIR}" ]] \
+  || { echo "ERROR: staged current generation escapes its application tree" >&2; exit 1; }
+
+case "${APPLICATION}" in
+  gitlab)
+    [[ -s "${GENERATION_DIR}/application/gitlab-backup.tar" \
+       && -s "${GENERATION_DIR}/config/gitlab.rb" \
+       && -s "${GENERATION_DIR}/config/gitlab-secrets.json" \
+       && -s "${GENERATION_DIR}/metadata/backup-filename" \
+       && -s "${GENERATION_DIR}/metadata/gitlab-version" ]] \
+      || { echo "ERROR: incomplete staged GitLab generation" >&2; exit 1; }
+    ;;
+  nextcloud)
+    [[ -s "${GENERATION_DIR}/owncloud.db" && -s "${GENERATION_DIR}/config.php" ]] \
+      || { echo "ERROR: incomplete staged Nextcloud generation" >&2; exit 1; }
+    ;;
+  n8n)
+    [[ -s "${GENERATION_DIR}/n8n.dump" ]] \
+      || { echo "ERROR: incomplete staged n8n generation" >&2; exit 1; }
+    ;;
+  wordpress)
+    [[ -s "${GENERATION_DIR}/wordpress.sql" && -s "${GENERATION_DIR}/wp-content.tar.gz" ]] \
+      || { echo "ERROR: incomplete staged WordPress generation" >&2; exit 1; }
+    ;;
+esac
+
+"/usr/local/sbin/restore-${APPLICATION}.sh" "${GENERATION_DIR}"
+echo "${APPLICATION} restore from snapshot ${SNAPSHOT_ID} completed successfully"

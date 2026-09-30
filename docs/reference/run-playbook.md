@@ -105,15 +105,13 @@ en :
 
 ## Restore
 
-Le restore garde volontairement `-e` explicite :
+Le restore utilise une interface fail-closed avec application et identifiant de snapshot explicites :
 
 ```bash
-./scripts/run-playbook.sh hml rst \
-  --tags n8n \
-  -e snapshot_id=<SNAPSHOT_ID>
+./scripts/run-playbook.sh platform01 restore n8n 0123456789abcdef
 ```
 
-Cela évite de masquer la sémantique Ansible pour une opération destructive.
+Le runner refuse les applications hors V1, les tags fournis par l'opérateur et les identifiants non hexadécimaux. Il fournit au playbook `restore_application`, `restore_snapshot_id` et le seul tag applicatif autorisé. `latest` n'est pas accepté.
 
 ## Aide
 

@@ -23,3 +23,4 @@ restic_maintenance_randomized_delay: 30m
 
 restic_lock_file: /run/lock/platform-forge-restic.lock
 restic_metrics_dir: /var/lib/node_exporter/textfile_collector
+restic_restore_staging_root: /var/lib/platform-forge/restore/staging

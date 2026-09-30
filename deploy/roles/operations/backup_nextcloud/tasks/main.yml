@@ -23,6 +23,7 @@
     - "{{ backup_nextcloud_root }}"
     - "{{ backup_nextcloud_generations_dir }}"
     - "{{ platform_backup_root }}/.staging/nextcloud"
+    - "{{ backup_nextcloud_restore_dir }}"
 
 - name: Deploy nextcloud backup script
   ansible.builtin.template:

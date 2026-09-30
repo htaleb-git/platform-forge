@@ -17,6 +17,7 @@
     - "{{ backup_n8n_root }}"
     - "{{ backup_n8n_generations_dir }}"
     - "{{ platform_backup_root }}/.staging/n8n"
+    - "{{ backup_n8n_restore_dir }}"
 
 - name: Deploy n8n backup script
   ansible.builtin.template:

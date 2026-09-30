@@ -1,140 +1,103 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-BACKUP_DIR="{{ backup_wordpress_dir }}"
-RESTORE_DIR="{{ backup_wordpress_restore_dir }}"
-
-DUMP_FILE="${BACKUP_DIR}/{{ backup_wordpress_dump_name }}"
-CONTENT_FILE="${BACKUP_DIR}/{{ backup_wordpress_content_name }}"
-
+[[ $# -eq 1 ]] || { echo "Usage: $0 <validated-generation-directory>" >&2; exit 2; }
+GENERATION_DIR="$1"
+DUMP_FILE="${GENERATION_DIR}/{{ backup_wordpress_dump_name }}"
+CONTENT_FILE="${GENERATION_DIR}/{{ backup_wordpress_content_name }}"
 WORDPRESS_DIR="{{ wordpress_data_dir }}/html"
 CONTENT_DIR="${WORDPRESS_DIR}/wp-content"
-
 DB_CONTAINER="{{ backup_wordpress_mariadb_container_name }}"
 WP_CONTAINER="{{ backup_wordpress_container_name }}"
+ROLLBACK_DIR="{{ backup_wordpress_restore_dir }}/rollback-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+EXTRACT_DIR="${ROLLBACK_DIR}/incoming"
+ROLLBACK_DUMP="${ROLLBACK_DIR}/wordpress.sql"
+ROLLBACK_CONTENT="${ROLLBACK_DIR}/wp-content.tar.gz"
+MUTATION_STARTED=0
+ROLLBACK_READY=0
+ROLLBACK_RUNNING=0
 
-echo "=== WordPress restore ==="
-
-if [[ ! -s "${DUMP_FILE}" ]]; then
-  echo "ERROR: WordPress database backup missing or empty: ${DUMP_FILE}" >&2
-  exit 1
-fi
-
-if [[ ! -s "${CONTENT_FILE}" ]]; then
-  echo "ERROR: WordPress content backup missing or empty: ${CONTENT_FILE}" >&2
-  exit 1
-fi
-
-if ! docker inspect "${DB_CONTAINER}" >/dev/null 2>&1; then
-  echo "ERROR: MariaDB container not found: ${DB_CONTAINER}" >&2
-  exit 1
-fi
-
-if ! docker inspect "${WP_CONTAINER}" >/dev/null 2>&1; then
-  echo "ERROR: WordPress container not found: ${WP_CONTAINER}" >&2
-  exit 1
-fi
-
-echo "Checking WordPress content archive"
-
-tar -tzf "${CONTENT_FILE}" >/dev/null
-
-echo "Preparing restore directory"
-
-rm -rf "${RESTORE_DIR}"
-mkdir -p "${RESTORE_DIR}"
-
-echo "Extracting wp-content backup"
-
-tar -xzf "${CONTENT_FILE}" -C "${RESTORE_DIR}"
-
-if [[ ! -d "${RESTORE_DIR}/wp-content" ]]; then
-  echo "ERROR: wp-content directory not found in archive" >&2
-  exit 1
-fi
-
-echo "Stopping WordPress container"
-
-docker stop "${WP_CONTAINER}" >/dev/null
-
-cleanup() {
-  local exit_code=$?
-
-  echo "Starting WordPress container"
-  docker start "${WP_CONTAINER}" >/dev/null || true
-
-  rm -rf "${RESTORE_DIR}"
-
-  exit "${exit_code}"
+db_exec() {
+  docker exec -e MYSQL_PWD="{{ vault_wordpress_mariadb_root_password }}" "${DB_CONTAINER}" \
+    mariadb -u root "$@"
 }
 
-trap cleanup EXIT
+db_import() {
+  docker exec -i -e MYSQL_PWD="{{ vault_wordpress_mariadb_root_password }}" "${DB_CONTAINER}" \
+    mariadb -u root "{{ wordpress_db_name }}"
+}
 
-echo "Recreating WordPress database"
+[[ "${GENERATION_DIR}" == /* && -d "${GENERATION_DIR}" && ! -L "${GENERATION_DIR}" ]] \
+  || { echo "ERROR: restore source must be an explicit directory" >&2; exit 1; }
+[[ -s "${DUMP_FILE}" && -s "${CONTENT_FILE}" ]] \
+  || { echo "ERROR: incomplete WordPress restore source" >&2; exit 1; }
+grep -Eq 'MariaDB dump|MySQL dump' "${DUMP_FILE}" \
+  || { echo "ERROR: invalid WordPress SQL dump" >&2; exit 1; }
+docker inspect "${DB_CONTAINER}" "${WP_CONTAINER}" >/dev/null
+db_exec -N -e "SELECT 1" | grep -qx 1
+[[ -d "${WORDPRESS_DIR}" && ! -L "${WORDPRESS_DIR}" \
+   && -d "${CONTENT_DIR}" && ! -L "${CONTENT_DIR}" ]] \
+  || { echo "ERROR: current wp-content path is unavailable or unsafe" >&2; exit 1; }
+mkdir -p -- "{{ backup_wordpress_restore_dir }}"
+mkdir -- "${ROLLBACK_DIR}" "${EXTRACT_DIR}"
 
-docker exec "${DB_CONTAINER}" \
-  mariadb \
-  -u root \
-  "-p{{ vault_wordpress_mariadb_root_password }}" \
-  -e "
-    DROP DATABASE IF EXISTS \`{{ wordpress_db_name }}\`;
-    CREATE DATABASE \`{{ wordpress_db_name }}\`
-      CHARACTER SET utf8mb4
-      COLLATE utf8mb4_unicode_ci;
-    GRANT ALL PRIVILEGES
-      ON \`{{ wordpress_db_name }}\`.*
-      TO '{{ wordpress_db_user }}'@'%';
-    FLUSH PRIVILEGES;
-  "
-
-echo "Restoring WordPress database"
-
-docker exec -i "${DB_CONTAINER}" \
-  mariadb \
-  -u root \
-  "-p{{ vault_wordpress_mariadb_root_password }}" \
-  "{{ wordpress_db_name }}" \
-  < "${DUMP_FILE}"
-
-echo "Checking restored WordPress database"
-
-TABLE_COUNT="$(
-  docker exec "${DB_CONTAINER}" \
-    mariadb \
-    -u root \
-    "-p{{ vault_wordpress_mariadb_root_password }}" \
-    -N \
-    -e "
-      SELECT COUNT(*)
-      FROM information_schema.tables
-      WHERE table_schema='{{ wordpress_db_name }}';
-    "
-)"
-
-if ! [[ "${TABLE_COUNT}" =~ ^[1-9][0-9]*$ ]]; then
-  echo "ERROR: restored WordPress database contains no tables" >&2
+# Reject absolute paths, traversal, links, and unexpected top-level entries.
+while IFS= read -r entry; do
+  [[ "${entry}" == wp-content || "${entry}" == wp-content/* ]] \
+    || { echo "ERROR: unexpected path in WordPress content archive" >&2; exit 1; }
+  [[ "${entry}" != /* && "${entry}" != *"../"* && "${entry}" != ".." ]] \
+    || { echo "ERROR: unsafe path in WordPress content archive" >&2; exit 1; }
+done < <(tar -tzf "${CONTENT_FILE}")
+if tar -tvzf "${CONTENT_FILE}" | grep -Eq '^[lh]'; then
+  echo "ERROR: links are not allowed in the WordPress content archive" >&2
   exit 1
 fi
+tar -xzf "${CONTENT_FILE}" -C "${EXTRACT_DIR}" --no-same-owner --no-same-permissions
+[[ -d "${EXTRACT_DIR}/wp-content" ]] || { echo "ERROR: wp-content is absent from archive" >&2; exit 1; }
 
-echo "Restored database contains ${TABLE_COUNT} tables"
+rollback() {
+  ROLLBACK_RUNNING=1
+  echo "ERROR: WordPress restore failed; attempting database/content rollback" >&2
+  db_exec -e "DROP DATABASE IF EXISTS \`{{ wordpress_db_name }}\`; CREATE DATABASE \`{{ wordpress_db_name }}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`{{ wordpress_db_name }}\`.* TO '{{ wordpress_db_user }}'@'%'; FLUSH PRIVILEGES;" \
+    && db_import < "${ROLLBACK_DUMP}" \
+    && rm -rf --one-file-system -- "${CONTENT_DIR}" \
+    && tar -xzf "${ROLLBACK_CONTENT}" -C "${WORDPRESS_DIR}" --no-same-owner \
+    && chown -R "{{ wordpress_container_uid }}:{{ wordpress_container_gid }}" "${CONTENT_DIR}" \
+    && docker start "${WP_CONTAINER}" >/dev/null \
+    && db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ wordpress_db_name }}';" | grep -Eq '^[1-9][0-9]*$' \
+    || { echo "CRITICAL: WordPress rollback failed; manual recovery is required" >&2; return 1; }
+}
 
-echo "Restoring wp-content"
+on_exit() {
+  local exit_code=$?
+  if [[ "${exit_code}" -ne 0 && "${MUTATION_STARTED}" -eq 1 \
+     && "${ROLLBACK_READY}" -eq 1 && "${ROLLBACK_RUNNING}" -eq 0 ]]; then
+    rollback || exit 2
+  fi
+  exit "${exit_code}"
+}
+trap on_exit EXIT
 
-rm -rf "${CONTENT_DIR}"
+docker exec -e MYSQL_PWD="{{ vault_wordpress_mariadb_root_password }}" "${DB_CONTAINER}" \
+  mariadb-dump -u root --single-transaction --quick --lock-tables=false "{{ wordpress_db_name }}" > "${ROLLBACK_DUMP}"
+[[ -s "${ROLLBACK_DUMP}" ]] || { echo "ERROR: WordPress rollback SQL dump is empty" >&2; exit 1; }
+tar -C "${WORDPRESS_DIR}" -czf "${ROLLBACK_CONTENT}" wp-content
+tar -tzf "${ROLLBACK_CONTENT}" >/dev/null
+chmod 0600 "${ROLLBACK_DUMP}" "${ROLLBACK_CONTENT}"
+ROLLBACK_READY=1
 
-cp -a \
-  "${RESTORE_DIR}/wp-content" \
-  "${WORDPRESS_DIR}/"
-
-chown -R \
-  "{{ wordpress_container_uid }}:{{ wordpress_container_gid }}" \
-  "${CONTENT_DIR}"
-
-echo "Checking restored wp-content"
-
-if [[ ! -d "${CONTENT_DIR}" ]]; then
-  echo "ERROR: restored wp-content directory does not exist" >&2
-  exit 1
-fi
-
-echo "WordPress restore successfully completed"
+docker stop "${WP_CONTAINER}" >/dev/null
+MUTATION_STARTED=1
+db_exec -e "DROP DATABASE IF EXISTS \`{{ wordpress_db_name }}\`; CREATE DATABASE \`{{ wordpress_db_name }}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`{{ wordpress_db_name }}\`.* TO '{{ wordpress_db_user }}'@'%'; FLUSH PRIVILEGES;"
+db_import < "${DUMP_FILE}"
+TABLE_COUNT="$(db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ wordpress_db_name }}';")"
+[[ "${TABLE_COUNT}" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: restored WordPress database contains no tables" >&2; exit 1; }
+rm -rf --one-file-system -- "${CONTENT_DIR}"
+cp -a -- "${EXTRACT_DIR}/wp-content" "${WORDPRESS_DIR}/"
+chown -R "{{ wordpress_container_uid }}:{{ wordpress_container_gid }}" "${CONTENT_DIR}"
+docker start "${WP_CONTAINER}" >/dev/null
+[[ "$(docker inspect -f '{{ "{{.State.Running}}" }}' "${WP_CONTAINER}")" == "true" ]]
+db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ wordpress_db_name }}';" | grep -Eq '^[1-9][0-9]*$'
+[[ -d "${CONTENT_DIR}" ]]
+MUTATION_STARTED=0
+echo "WordPress restore and local validation completed successfully"

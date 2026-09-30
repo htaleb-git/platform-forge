@@ -8,6 +8,10 @@
       - restic_password_file | length > 1
       - restic_environment_file.startswith('/')
       - restic_environment_file | length > 1
+      - restic_restore_staging_root.startswith('/')
+      - restic_restore_staging_root != '/'
+      - restic_restore_staging_root != platform_backup_root
+      - restic_restore_staging_root != restic_password_file | dirname
       - restic_backup_paths is sequence
       - restic_backup_paths is not string
       - restic_backup_paths | length > 0
@@ -73,6 +77,8 @@
       mode: "0700"
     - path: "{{ platform_backup_root }}"
       mode: "0700"
+    - path: "{{ restic_restore_staging_root }}"
+      mode: "0700"
 
 - name: Deploy Restic password file
   ansible.builtin.copy:
@@ -106,6 +112,8 @@
       dest: /usr/local/sbin/check-restic.sh
     - src: maintenance-restic.sh.j2
       dest: /usr/local/sbin/maintenance-restic.sh
+    - src: restore-restic-application.sh.j2
+      dest: /usr/local/sbin/restore-restic-application.sh
   no_log: true
 
 - name: Deploy Restic systemd services
