@@ -2,12 +2,15 @@
 backup_n8n_enabled: false
 backup_n8n_root: "{{ platform_backup_root }}/n8n"
 backup_n8n_generations_dir: "{{ backup_n8n_root }}/generations"
-backup_n8n_dir: "{{ backup_n8n_root }}/current"
 backup_n8n_dump_name: n8n.dump
 backup_n8n_generations_to_keep: 2
 backup_n8n_schedule: "*-*-* 03:00:00"
 backup_n8n_randomized_delay: 5m
 backup_n8n_metrics_dir: /var/lib/node_exporter/textfile_collector
+backup_n8n_container_name: n8n
+backup_n8n_postgres_container_name: n8n-postgres
+backup_n8n_postgres_user: n8n
+backup_n8n_postgres_db: n8n
 backup_n8n_owner: root
 backup_n8n_group: root
 backup_n8n_dir_mode: "0700"

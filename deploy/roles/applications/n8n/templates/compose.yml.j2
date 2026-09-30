@@ -39,7 +39,7 @@ services:
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
 
       N8N_HOST: "{{ n8n_hostname }}"
-      N8N_PROTOCOL: "https"
+      N8N_PROTOCOL: "{{ n8n_protocol }}"
       N8N_WEBHOOK_URL: "{{ n8n_protocol }}://{{ n8n_hostname }}/"
       N8N_PROXY_HOPS: "1"
 
@@ -58,7 +58,7 @@ services:
     
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=proxy"
+      - "traefik.docker.network={{ n8n_network_proxy }}"
       
       - "traefik.http.routers.n8n.rule=Host(`{{ n8n_hostname }}`)"
       - "traefik.http.routers.n8n.entrypoints=websecure"
@@ -95,4 +95,3 @@ networks:
 
   backend:
     name: "{{ n8n_network_backend }}"
-

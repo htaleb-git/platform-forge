@@ -11,7 +11,10 @@ restic_tags:
   - platform-forge
   - "{{ inventory_hostname }}"
 
-restic_retention: {}
+restic_retention:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: 12
 restic_prune_enabled: false
 
 restic_backup_schedule: "*-*-* 04:00:00"

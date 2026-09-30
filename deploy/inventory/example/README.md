@@ -8,10 +8,9 @@ choices: platform identity and paths, opt-in applications, monitoring
 capabilities, backup capabilities, and component configuration. Application
 backup flags publish validated generations below `platform_backup_root`
 independently of Restic. `restic_enabled` remains false until the example
-repository, schedules, retention, options, and optional backend environment
-are reviewed. The configured repository must already be initialized. Secret
-backend environment values should be moved to the Vault file rather than
-committed in `main.yml`.
+repository, schedules, and retention are reviewed. The configured repository
+must already be initialized. Advanced backend environment values belong in an
+encrypted inventory file when they contain secrets.
 
 `group_vars/platform_nodes/vault.yml.example` documents only secrets consumed
 by the current implementation. Copy it to `vault.yml`, replace every
@@ -25,5 +24,7 @@ Run a canonical playbook through the repository runner, for example:
 ./scripts/run-playbook.sh platform01 system --check --diff
 ```
 
-This inventory is a public contract example, not yet an end-to-end deployable
-configuration. Restore selects and stages exact Restic snapshots in Phase 6.
+The example exposes operator policy only. Platform Forge maintains images,
+container identities, derived paths, and standard network topology in role
+defaults. Replace required placeholders and enable only the capabilities you
+intend to deploy. Restore selects and stages exact Restic snapshots.

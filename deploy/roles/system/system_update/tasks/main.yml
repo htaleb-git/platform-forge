@@ -16,6 +16,12 @@
   ansible.builtin.apt:
     upgrade: "{{ system_update_upgrade_type }}"
 
+- name: Install additional system packages
+  ansible.builtin.apt:
+    name: "{{ system_update_additional_packages }}"
+    state: present
+  when: system_update_additional_packages | length > 0
+
 - name: Remove unused dependencies
   ansible.builtin.apt:
     autoremove: true

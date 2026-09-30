@@ -15,11 +15,6 @@
         - system
         - updates
 
-    - role: common_packages
-      tags:
-        - system
-        - packages
-
     - role: system_swap
       tags:
         - system

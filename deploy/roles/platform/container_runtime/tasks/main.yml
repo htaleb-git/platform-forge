@@ -62,3 +62,10 @@
 
 - name: Apply container runtime handlers before Docker-dependent roles
   ansible.builtin.meta: flush_handlers    
+
+- name: Add explicitly configured users to the Docker group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ container_runtime_docker_users }}"

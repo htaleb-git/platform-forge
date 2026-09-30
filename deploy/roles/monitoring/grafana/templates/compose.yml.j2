@@ -16,7 +16,7 @@ services:
 
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=proxy"
+      - "traefik.docker.network={{ grafana_network_proxy }}"
       
       - "traefik.http.routers.grafana.rule=Host(`{{ grafana_hostname }}`)"
       - "traefik.http.routers.grafana.entrypoints=websecure"
@@ -31,5 +31,7 @@ services:
 networks:
   monitoring:
     external: true
+    name: "{{ grafana_network_monitoring }}"
   proxy:
-    external: true    
+    external: true
+    name: "{{ grafana_network_proxy }}"

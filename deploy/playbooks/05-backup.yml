@@ -4,6 +4,23 @@
   become: true
   gather_facts: true
 
+  vars:
+    platform_apps_root: "{{ platform_root }}/apps"
+    platform_data_root: "{{ platform_root }}/data"
+    platform_backup_root: "{{ platform_root }}/backups"
+
+  pre_tasks:
+    - name: Validate application backup enablement
+      ansible.builtin.assert:
+        that:
+          - not backup_gitlab_enabled | bool or gitlab_enabled | bool
+          - not backup_nextcloud_enabled | bool or nextcloud_enabled | bool
+          - not backup_n8n_enabled | bool or n8n_enabled | bool
+          - not backup_wordpress_enabled | bool or wordpress_enabled | bool
+        fail_msg: "An application backup cannot be enabled while its application is disabled."
+      tags:
+        - backup
+
   roles:
     - role: backup_gitlab
       when:

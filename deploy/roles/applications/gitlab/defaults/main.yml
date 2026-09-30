@@ -1,6 +1,7 @@
 ---
 gitlab_enabled: false
 gitlab_container_name: "gitlab"
+gitlab_image: gitlab/gitlab-ce:19.2.7-ce.0
 gitlab_app_dir: "{{ platform_apps_root }}/gitlab"
 gitlab_data_dir: "{{ platform_data_root }}/gitlab"
 gitlab_config_dir: "{{ gitlab_data_dir }}/config"
@@ -10,3 +11,9 @@ gitlab_shm_size: "256m"
 gitlab_timezone: "{{ platform_timezone }}"
 gitlab_storage_owner: "{{ platform_admin_user }}"
 gitlab_storage_group: "{{ platform_admin_user }}"
+gitlab_hostname: "gitlab.{{ platform_domain }}"
+gitlab_external_url: "https://{{ gitlab_hostname }}"
+gitlab_ssh_port: 2222
+gitlab_network_proxy: "{{ platform_proxy_network }}"
+traefik_tls_mode: internal
+traefik_acme_resolver: letsencrypt

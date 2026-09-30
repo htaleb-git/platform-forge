@@ -1,4 +1,13 @@
 ---
+- name: Validate Node Exporter configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.architecture in node_exporter_architecture_map
+      - node_exporter_port | int >= 1
+      - node_exporter_port | int <= 65535
+      - node_exporter_textfile_dir is match('^/[^/]+')
+    fail_msg: "Unsupported Node Exporter architecture, port, or textfile path."
+
 - name: Create node_exporter system group
   ansible.builtin.group:
     name: "{{ node_exporter_group }}"

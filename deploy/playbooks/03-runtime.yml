@@ -4,18 +4,20 @@
   become: true
   gather_facts: true
 
+  vars:
+    platform_apps_root: "{{ platform_root }}/apps"
+    platform_data_root: "{{ platform_root }}/data"
+    platform_backup_root: "{{ platform_root }}/backups"
+    platform_proxy_network: proxy
+    platform_monitoring_network: monitoring
+    platform_monitoring_subnet: 172.23.0.0/16
+
   roles:
     - role: container_runtime
       tags:
         - runtime
         - docker
         - container-runtime
-
-    - role: docker_users
-      tags:
-        - runtime
-        - docker
-        - docker-users
 
     - role: docker_networks
       tags:

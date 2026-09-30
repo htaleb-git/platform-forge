@@ -18,6 +18,8 @@ container_runtime_packages:
   - docker-buildx-plugin
   - docker-compose-plugin
 
+container_runtime_docker_users: []
+
 docker_log_driver: json-file
 docker_log_max_size: 10m
 docker_log_max_file: 3

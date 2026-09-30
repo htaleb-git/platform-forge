@@ -2,7 +2,6 @@
 backup_gitlab_enabled: false
 backup_gitlab_root: "{{ platform_backup_root }}/gitlab"
 backup_gitlab_generations_dir: "{{ backup_gitlab_root }}/generations"
-backup_gitlab_dir: "{{ backup_gitlab_root }}/current"
 backup_gitlab_restore_dir: /var/lib/platform-forge/restore/gitlab
 backup_gitlab_dump_name: gitlab-backup.tar
 backup_gitlab_filename_metadata: backup-filename
@@ -11,9 +10,11 @@ backup_gitlab_generations_to_keep: 2
 backup_gitlab_schedule: "*-*-* 03:30:00"
 backup_gitlab_randomized_delay: 5m
 backup_gitlab_metrics_dir: /var/lib/node_exporter/textfile_collector
+backup_gitlab_container_name: gitlab
+backup_gitlab_app_dir: "{{ platform_apps_root }}/gitlab"
+backup_gitlab_data_dir: "{{ platform_data_root }}/gitlab"
+backup_gitlab_data_store_dir: "{{ backup_gitlab_data_dir }}/data"
+backup_gitlab_config_dir: "{{ backup_gitlab_data_dir }}/config"
 backup_gitlab_application_subdir: "application"
-backup_gitlab_application_dir: "{{ backup_gitlab_dir }}/{{ backup_gitlab_application_subdir }}"
 backup_gitlab_config_subdir: "config"
-backup_gitlab_config_dir: "{{ backup_gitlab_dir }}/{{ backup_gitlab_config_subdir }}"
 backup_gitlab_metadata_subdir: "metadata" 
-backup_gitlab_metadata_dir: "{{ backup_gitlab_dir }}/{{ backup_gitlab_metadata_subdir }}"

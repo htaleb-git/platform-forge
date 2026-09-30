@@ -4,7 +4,10 @@
     that:
       - backup_wordpress_root.startswith(platform_backup_root + '/')
       - backup_wordpress_generations_to_keep | int >= 1
+      - vault_wordpress_mariadb_root_password | default('') | length > 0
+      - vault_wordpress_mariadb_root_password | default('') != 'CHANGE_ME'
     fail_msg: "Invalid WordPress backup publication configuration."
+  no_log: true
 
 - name: Create WordPress backup publication directories
   ansible.builtin.file:

@@ -1,4 +1,15 @@
 ---
+- name: Validate Prometheus configuration
+  ansible.builtin.assert:
+    that:
+      - prometheus_app_dir is match('^/[^/]+')
+      - prometheus_config_dir is match('^/[^/]+')
+      - prometheus_data_dir is match('^/[^/]+')
+      - prometheus_network_subnet is match('^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$')
+      - prometheus_scrape_interval is match('^[0-9]+(ms|s|m|h|d)$')
+      - prometheus_retention_time is match('^[0-9]+(ms|s|m|h|d|w|y)$')
+    fail_msg: "Invalid Prometheus paths, scrape interval, or retention time."
+
 - name: Create Prometheus application directory
   ansible.builtin.file:
     path: "{{ prometheus_app_dir }}"
@@ -45,9 +56,10 @@
   community.general.ufw:
     rule: allow
     proto: tcp
-    src: "{{ monitoring_docker_subnet }}"
-    port: "{{ node_exporter_port }}"
-    comment: Prometheus to Node Exporter  
+    src: "{{ prometheus_network_subnet }}"
+    port: "{{ prometheus_node_exporter_port }}"
+    comment: Prometheus to Node Exporter
+  when: node_exporter_enabled | bool
 
 - name: Start Prometheus
   community.docker.docker_compose_v2:

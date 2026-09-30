@@ -9,7 +9,7 @@
     command: "{{ cadvisor_command | default(omit, true) }}"
 
     networks:
-      - name: monitoring
+      - name: "{{ cadvisor_network }}"
       
     volumes:
       - "/:/rootfs:ro"

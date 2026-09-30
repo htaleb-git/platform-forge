@@ -1,7 +1,17 @@
 ---
 grafana_enabled: false
-grafana_image: "grafana/grafana:{{ grafana_version }}"
+grafana_image: grafana/grafana:13.0.9
 grafana_container_name: grafana
 grafana_restart_policy: unless-stopped
+grafana_app_dir: "{{ platform_apps_root }}/grafana"
+grafana_data_dir: "{{ platform_data_root }}/grafana/data"
+grafana_provisioning_dir: "{{ platform_data_root }}/grafana/provisioning"
+grafana_dashboards_dir: "{{ platform_data_root }}/grafana/dashboards"
+grafana_hostname: "grafana.{{ platform_domain }}"
+grafana_storage_dashboard_enabled: false
+grafana_network_monitoring: "{{ platform_monitoring_network }}"
+grafana_network_proxy: "{{ platform_proxy_network }}"
+traefik_tls_mode: internal
+traefik_acme_resolver: letsencrypt
 
 grafana_prometheus_url: "http://prometheus:9090"

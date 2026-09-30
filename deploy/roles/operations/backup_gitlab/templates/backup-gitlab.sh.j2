@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-GITLAB_CONTAINER="{{ gitlab_container_name }}"
+GITLAB_CONTAINER="{{ backup_gitlab_container_name }}"
 BACKUP_ROOT="{{ backup_gitlab_root }}"
 GENERATIONS_DIR="{{ backup_gitlab_generations_dir }}"
 STAGING_PARENT="{{ platform_backup_root }}/.staging/gitlab"

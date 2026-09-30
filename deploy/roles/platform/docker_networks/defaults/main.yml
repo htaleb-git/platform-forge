@@ -1,2 +1,9 @@
 ---
-docker_networks: []
+platform_proxy_network: proxy
+platform_monitoring_network: monitoring
+platform_monitoring_subnet: 172.23.0.0/16
+
+docker_networks:
+  - name: "{{ platform_proxy_network }}"
+  - name: "{{ platform_monitoring_network }}"
+    subnet: "{{ platform_monitoring_subnet }}"

@@ -5,11 +5,26 @@ n8n_data_dir: "{{ platform_data_root }}/n8n"
 n8n_storage_owner: "{{ platform_admin_user }}"
 n8n_storage_group: "{{ platform_admin_user }}"
 
-n8n_image: "{{ docker_images.n8n.repository }}:{{ docker_images.n8n.tag }}"
-n8n_postgres_image: "{{ docker_images.postgres.repository }}:{{ docker_images.postgres.tag }}"
+n8n_image: docker.n8n.io/n8nio/n8n:2.4.8
+n8n_postgres_image: postgres:17.11-bookworm
+n8n_container_name: n8n
+n8n_postgres_container_name: n8n-postgres
+n8n_container_uid: 1000
+n8n_container_gid: 1000
+n8n_postgres_uid: 999
+n8n_postgres_gid: 999
 
-n8n_encryption_key: "{{ vault_n8n_encryption_key }}"
-n8n_postgres_password: "{{ vault_n8n_postgres_password }}"
+n8n_hostname: "n8n.{{ platform_domain }}"
+n8n_protocol: https
+n8n_postgres_db: n8n
+n8n_postgres_user: n8n
+n8n_network_proxy: "{{ platform_proxy_network }}"
+n8n_network_backend: n8n-backend
+traefik_tls_mode: internal
+traefik_acme_resolver: letsencrypt
+
+n8n_encryption_key: "{{ vault_n8n_encryption_key | default('') }}"
+n8n_postgres_password: "{{ vault_n8n_postgres_password | default('') }}"
 
 n8n_nodes_exclude:
   - n8n-nodes-base.localFileTrigger

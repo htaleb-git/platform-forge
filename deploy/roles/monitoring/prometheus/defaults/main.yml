@@ -1,8 +1,15 @@
 ---
 prometheus_enabled: false
 prometheus_container_name: prometheus
-prometheus_image: "prom/prometheus:v{{ prometheus_version }}"
+prometheus_image: prom/prometheus:v3.10.0
+prometheus_app_dir: "{{ platform_apps_root }}/prometheus"
+prometheus_config_dir: "{{ platform_data_root }}/prometheus/config"
+prometheus_data_dir: "{{ platform_data_root }}/prometheus/data"
+prometheus_network: "{{ platform_monitoring_network }}"
+prometheus_network_subnet: "{{ platform_monitoring_subnet }}"
+prometheus_scrape_interval: 30s
+prometheus_retention_time: 30d
+prometheus_node_exporter_port: 9100
+prometheus_cadvisor_port: 8080
 
 prometheus_restart_policy: unless-stopped
-
-

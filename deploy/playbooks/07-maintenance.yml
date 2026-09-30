@@ -4,6 +4,9 @@
   become: true
   gather_facts: true
 
+  vars:
+    platform_backup_root: "{{ platform_root }}/backups"
+
   roles:
     - role: system_update
       vars:

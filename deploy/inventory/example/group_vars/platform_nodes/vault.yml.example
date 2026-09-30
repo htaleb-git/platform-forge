@@ -1,10 +1,20 @@
 ---
 # Copy to vault.yml, replace every placeholder, and encrypt it with Ansible Vault.
+# Required by server initialization.
 vault_platform_admin_password_hash: CHANGE_ME
+
+# Required only when n8n is enabled.
 vault_n8n_encryption_key: CHANGE_ME
 vault_n8n_postgres_password: CHANGE_ME
+
+# Required when WordPress is enabled.
 vault_wordpress_db_password: CHANGE_ME
+# Required when WordPress or its backup is enabled.
 vault_wordpress_mariadb_root_password: CHANGE_ME
+
+# Required only when Restic is enabled.
 vault_restic_password: CHANGE_ME
+
+# Required only when traefik_tls_mode is internal.
 vault_traefik_tls_private_key: CHANGE_ME
 vault_traefik_tls_certificate: CHANGE_ME

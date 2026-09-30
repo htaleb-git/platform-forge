@@ -32,7 +32,7 @@ rollback() {
   [[ -f "${ROLLBACK_DIR}/owncloud.db" && -f "${ROLLBACK_DIR}/config.php" ]] \
     && cp -a -- "${ROLLBACK_DIR}/owncloud.db" "${TARGET_DB}" \
     && cp -a -- "${ROLLBACK_DIR}/config.php" "${TARGET_CONFIG}" \
-    && chown "{{ nextcloud_container_uid }}:{{ nextcloud_container_gid }}" "${TARGET_DB}" "${TARGET_CONFIG}" \
+    && chown "{{ backup_nextcloud_container_uid }}:{{ backup_nextcloud_container_gid }}" "${TARGET_DB}" "${TARGET_CONFIG}" \
     && chmod 0640 "${TARGET_DB}" "${TARGET_CONFIG}" \
     && sqlite3 "${TARGET_DB}" "PRAGMA integrity_check;" | grep -qx ok \
     || { echo "CRITICAL: Nextcloud rollback failed; manual recovery is required" >&2; return 1; }
@@ -63,8 +63,8 @@ ROLLBACK_READY=1
 docker exec -u www-data "${CONTAINER}" php occ maintenance:mode --on
 MAINTENANCE_ENABLED=1
 MUTATION_STARTED=1
-install -o "{{ nextcloud_container_uid }}" -g "{{ nextcloud_container_gid }}" -m 0640 "${BACKUP_DB}" "${TARGET_DB}"
-install -o "{{ nextcloud_container_uid }}" -g "{{ nextcloud_container_gid }}" -m 0640 "${BACKUP_CONFIG}" "${TARGET_CONFIG}"
+install -o "{{ backup_nextcloud_container_uid }}" -g "{{ backup_nextcloud_container_gid }}" -m 0640 "${BACKUP_DB}" "${TARGET_DB}"
+install -o "{{ backup_nextcloud_container_uid }}" -g "{{ backup_nextcloud_container_gid }}" -m 0640 "${BACKUP_CONFIG}" "${TARGET_CONFIG}"
 sqlite3 "${TARGET_DB}" "PRAGMA integrity_check;" | grep -qx ok
 docker exec -u www-data "${CONTAINER}" php occ maintenance:mode --off
 MAINTENANCE_ENABLED=0

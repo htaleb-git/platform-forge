@@ -2,16 +2,17 @@
 backup_nextcloud_enabled: false
 backup_nextcloud_root: "{{ platform_backup_root }}/nextcloud"
 backup_nextcloud_generations_dir: "{{ backup_nextcloud_root }}/generations"
-backup_nextcloud_dir: "{{ backup_nextcloud_root }}/current"
 backup_nextcloud_db_name: owncloud.db
 backup_nextcloud_config_name: config.php
 backup_nextcloud_generations_to_keep: 2
 backup_nextcloud_schedule: "*-*-* 03:10:00"
 backup_nextcloud_randomized_delay: 5m
 backup_nextcloud_metrics_dir: /var/lib/node_exporter/textfile_collector
-backup_nextcloud_container_name: "{{ nextcloud_container_name }}"
-backup_nextcloud_data_dir: "{{ nextcloud_data_dir }}/html/data"
-backup_nextcloud_config_file: "{{ nextcloud_data_dir }}/html/config/config.php"
+backup_nextcloud_container_name: nextcloud
+backup_nextcloud_data_dir: "{{ platform_data_root }}/nextcloud/html/data"
+backup_nextcloud_config_file: "{{ platform_data_root }}/nextcloud/html/config/config.php"
+backup_nextcloud_container_uid: 33
+backup_nextcloud_container_gid: 33
 
 backup_nextcloud_owner: root
 backup_nextcloud_group: root

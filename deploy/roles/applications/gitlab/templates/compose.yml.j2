@@ -1,7 +1,7 @@
 services:
 
   gitlab:
-    image: "{{ docker_images.gitlab.repository }}:{{ docker_images.gitlab.tag }}"
+    image: "{{ gitlab_image }}"
     container_name: "{{ gitlab_container_name }}"
     hostname: "{{ gitlab_hostname }}"
     restart: unless-stopped
@@ -43,6 +43,9 @@ services:
       - "traefik.http.routers.gitlab.rule=Host(`{{ gitlab_hostname }}`)"
       - "traefik.http.routers.gitlab.entrypoints=websecure"
       - "traefik.http.routers.gitlab.tls=true"
+{% if traefik_tls_mode == "acme" %}
+      - "traefik.http.routers.gitlab.tls.certresolver={{ traefik_acme_resolver }}"
+{% endif %}
       - "traefik.http.services.gitlab.loadbalancer.server.port=80"
 
 networks:
@@ -50,4 +53,3 @@ networks:
   proxy:
     external: true
     name: "{{ gitlab_network_proxy }}"
-

@@ -39,7 +39,7 @@
 - name: Create n8n .env file
   ansible.builtin.template:
     dest: "{{ n8n_app_dir }}/.env"
-    src: "templates/env.j2"
+    src: env.j2
     owner: "{{ n8n_storage_owner }}"
     group: "{{ n8n_storage_group }}"
     mode: '0600'

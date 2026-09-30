@@ -1,6 +1,7 @@
 ---
 system_update_cache_valid_time: 3600
 system_update_upgrade_type: safe
+system_update_additional_packages: []
 
 system_update_autoremove: false
 system_update_autoremove_purge: false

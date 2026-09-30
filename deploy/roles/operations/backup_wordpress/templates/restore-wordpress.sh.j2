@@ -5,7 +5,7 @@ set -Eeuo pipefail
 GENERATION_DIR="$1"
 DUMP_FILE="${GENERATION_DIR}/{{ backup_wordpress_dump_name }}"
 CONTENT_FILE="${GENERATION_DIR}/{{ backup_wordpress_content_name }}"
-WORDPRESS_DIR="{{ wordpress_data_dir }}/html"
+WORDPRESS_DIR="{{ backup_wordpress_data_dir }}"
 CONTENT_DIR="${WORDPRESS_DIR}/wp-content"
 DB_CONTAINER="{{ backup_wordpress_mariadb_container_name }}"
 WP_CONTAINER="{{ backup_wordpress_container_name }}"
@@ -24,7 +24,7 @@ db_exec() {
 
 db_import() {
   docker exec -i -e MYSQL_PWD="{{ vault_wordpress_mariadb_root_password }}" "${DB_CONTAINER}" \
-    mariadb -u root "{{ wordpress_db_name }}"
+    mariadb -u root "{{ backup_wordpress_db_name }}"
 }
 
 [[ "${GENERATION_DIR}" == /* && -d "${GENERATION_DIR}" && ! -L "${GENERATION_DIR}" ]] \
@@ -58,13 +58,13 @@ tar -xzf "${CONTENT_FILE}" -C "${EXTRACT_DIR}" --no-same-owner --no-same-permiss
 rollback() {
   ROLLBACK_RUNNING=1
   echo "ERROR: WordPress restore failed; attempting database/content rollback" >&2
-  db_exec -e "DROP DATABASE IF EXISTS \`{{ wordpress_db_name }}\`; CREATE DATABASE \`{{ wordpress_db_name }}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`{{ wordpress_db_name }}\`.* TO '{{ wordpress_db_user }}'@'%'; FLUSH PRIVILEGES;" \
+  db_exec -e "DROP DATABASE IF EXISTS \`{{ backup_wordpress_db_name }}\`; CREATE DATABASE \`{{ backup_wordpress_db_name }}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`{{ backup_wordpress_db_name }}\`.* TO '{{ backup_wordpress_db_user }}'@'%'; FLUSH PRIVILEGES;" \
     && db_import < "${ROLLBACK_DUMP}" \
     && rm -rf --one-file-system -- "${CONTENT_DIR}" \
     && tar -xzf "${ROLLBACK_CONTENT}" -C "${WORDPRESS_DIR}" --no-same-owner \
-    && chown -R "{{ wordpress_container_uid }}:{{ wordpress_container_gid }}" "${CONTENT_DIR}" \
+    && chown -R "{{ backup_wordpress_container_uid }}:{{ backup_wordpress_container_gid }}" "${CONTENT_DIR}" \
     && docker start "${WP_CONTAINER}" >/dev/null \
-    && db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ wordpress_db_name }}';" | grep -Eq '^[1-9][0-9]*$' \
+    && db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ backup_wordpress_db_name }}';" | grep -Eq '^[1-9][0-9]*$' \
     || { echo "CRITICAL: WordPress rollback failed; manual recovery is required" >&2; return 1; }
 }
 
@@ -79,7 +79,7 @@ on_exit() {
 trap on_exit EXIT
 
 docker exec -e MYSQL_PWD="{{ vault_wordpress_mariadb_root_password }}" "${DB_CONTAINER}" \
-  mariadb-dump -u root --single-transaction --quick --lock-tables=false "{{ wordpress_db_name }}" > "${ROLLBACK_DUMP}"
+  mariadb-dump -u root --single-transaction --quick --lock-tables=false "{{ backup_wordpress_db_name }}" > "${ROLLBACK_DUMP}"
 [[ -s "${ROLLBACK_DUMP}" ]] || { echo "ERROR: WordPress rollback SQL dump is empty" >&2; exit 1; }
 tar -C "${WORDPRESS_DIR}" -czf "${ROLLBACK_CONTENT}" wp-content
 tar -tzf "${ROLLBACK_CONTENT}" >/dev/null
@@ -88,16 +88,16 @@ ROLLBACK_READY=1
 
 docker stop "${WP_CONTAINER}" >/dev/null
 MUTATION_STARTED=1
-db_exec -e "DROP DATABASE IF EXISTS \`{{ wordpress_db_name }}\`; CREATE DATABASE \`{{ wordpress_db_name }}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`{{ wordpress_db_name }}\`.* TO '{{ wordpress_db_user }}'@'%'; FLUSH PRIVILEGES;"
+db_exec -e "DROP DATABASE IF EXISTS \`{{ backup_wordpress_db_name }}\`; CREATE DATABASE \`{{ backup_wordpress_db_name }}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`{{ backup_wordpress_db_name }}\`.* TO '{{ backup_wordpress_db_user }}'@'%'; FLUSH PRIVILEGES;"
 db_import < "${DUMP_FILE}"
-TABLE_COUNT="$(db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ wordpress_db_name }}';")"
+TABLE_COUNT="$(db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ backup_wordpress_db_name }}';")"
 [[ "${TABLE_COUNT}" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: restored WordPress database contains no tables" >&2; exit 1; }
 rm -rf --one-file-system -- "${CONTENT_DIR}"
 cp -a -- "${EXTRACT_DIR}/wp-content" "${WORDPRESS_DIR}/"
-chown -R "{{ wordpress_container_uid }}:{{ wordpress_container_gid }}" "${CONTENT_DIR}"
+chown -R "{{ backup_wordpress_container_uid }}:{{ backup_wordpress_container_gid }}" "${CONTENT_DIR}"
 docker start "${WP_CONTAINER}" >/dev/null
 [[ "$(docker inspect -f '{{ "{{.State.Running}}" }}' "${WP_CONTAINER}")" == "true" ]]
-db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ wordpress_db_name }}';" | grep -Eq '^[1-9][0-9]*$'
+db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ backup_wordpress_db_name }}';" | grep -Eq '^[1-9][0-9]*$'
 [[ -d "${CONTENT_DIR}" ]]
 MUTATION_STARTED=0
 echo "WordPress restore and local validation completed successfully"

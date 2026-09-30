@@ -16,9 +16,9 @@ METRICS_TMP="${METRICS_FILE}.tmp.$$"
 START_TS="$(date +%s)"
 LAST_SUCCESS_TS=0
 
-POSTGRES_CONTAINER="{{ n8n_postgres_container_name }}"
-POSTGRES_USER="{{ n8n_postgres_user }}"
-POSTGRES_DB="{{ n8n_postgres_db }}"
+POSTGRES_CONTAINER="{{ backup_n8n_postgres_container_name }}"
+POSTGRES_USER="{{ backup_n8n_postgres_user }}"
+POSTGRES_DB="{{ backup_n8n_postgres_db }}"
 
 if [[ -f "${METRICS_FILE}" ]]; then
   LAST_SUCCESS_TS="$(awk '/^platform_forge_backup_last_success_timestamp\{backup="n8n"\}/ {print $2}' "${METRICS_FILE}" | tail -1)"

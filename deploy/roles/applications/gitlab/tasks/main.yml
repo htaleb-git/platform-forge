@@ -1,4 +1,15 @@
 ---
+- name: Validate GitLab configuration
+  ansible.builtin.assert:
+    that:
+      - gitlab_app_dir is match('^/[^/]+')
+      - gitlab_data_dir is match('^/[^/]+')
+      - gitlab_hostname | length > 0
+      - gitlab_external_url is match('^https://')
+      - gitlab_ssh_port | int >= 1
+      - gitlab_ssh_port | int <= 65535
+    fail_msg: "Invalid GitLab path, hostname, external URL, or SSH port configuration."
+
 - name: Create gitlab directories
   ansible.builtin.file:
     path: "{{ item }}"
@@ -22,6 +33,7 @@
   community.docker.docker_compose_v2:
     project_src: "{{ gitlab_app_dir }}"
     state: present
+  when: not ansible_check_mode
 
 - name: Wait for GitLab container to be healthy
   community.docker.docker_container_info:
@@ -33,3 +45,4 @@
     - gitlab_container_info.container.State.Health.Status == "healthy"
   retries: 40
   delay: 15
+  when: not ansible_check_mode

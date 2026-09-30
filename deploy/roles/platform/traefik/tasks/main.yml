@@ -4,15 +4,18 @@
     that:
       - traefik_app_dir is match('^/[^/]+')
       - traefik_tls_mode in ['acme', 'internal']
+      - traefik_tls_mode != 'acme' or traefik_acme_email | length > 0
+      - traefik_tls_mode != 'acme' or traefik_acme_email is match('^[^@ ]+@[^@ ]+$')
+      - traefik_tls_mode != 'acme' or traefik_acme_storage.startswith(traefik_app_dir + '/')
       - traefik_tls_mode != 'internal' or vault_traefik_tls_private_key | default('') | length > 0
       - traefik_tls_mode != 'internal' or vault_traefik_tls_private_key | default('') != 'CHANGE_ME'
       - traefik_tls_mode != 'internal' or vault_traefik_tls_certificate | default('') | length > 0
       - traefik_tls_mode != 'internal' or vault_traefik_tls_certificate | default('') != 'CHANGE_ME'
-    fail_msg: "Invalid Traefik path, TLS mode, or internal TLS secret configuration."
+    fail_msg: "Invalid Traefik path, TLS mode, ACME input, or internal TLS secret configuration."
   no_log: true
 
 - name: Create deployment directories for traefik
-  file:
+  ansible.builtin.file:
     path: "{{ traefik_app_dir }}"
     state: directory
     owner: "{{ traefik_storage_owner }}"
@@ -20,7 +23,7 @@
     mode: '0755'
 
 - name: Create dynamic configuration directory for traefik
-  file:
+  ansible.builtin.file:
     path: "{{ traefik_dynamic_dir }}"
     state: directory
     owner: "{{ traefik_storage_owner }}"
@@ -32,7 +35,7 @@
 # ------------------------------------------------------------
 
 - name: Create tls certs directory for traefik
-  file:
+  ansible.builtin.file:
     path: "{{ traefik_tls_cert_dir }}"
     state: directory
     owner: "{{ traefik_storage_owner }}"
@@ -64,8 +67,8 @@
     - not ansible_check_mode  
 
 - name: Generate tls.yml file for traefik
-  template:
-    src: "templates/tls.yml.j2"
+  ansible.builtin.template:
+    src: tls.yml.j2
     dest: "{{ traefik_dynamic_dir }}/tls.yml"
     owner: "{{ traefik_storage_owner }}"
     group: "{{ traefik_storage_group }}"
@@ -90,8 +93,8 @@
   when: traefik_tls_mode == "acme"
   
 - name: Generate compose file for traefik
-  template:
-    src: "templates/compose.yml.j2"
+  ansible.builtin.template:
+    src: compose.yml.j2
     dest: "{{ traefik_app_dir }}/compose.yml"
     owner: "{{ traefik_storage_owner }}"
     group: "{{ traefik_storage_group }}"
@@ -101,3 +104,4 @@
   community.docker.docker_compose_v2:
     project_src: "{{ traefik_app_dir }}"
     state: present
+  when: not ansible_check_mode

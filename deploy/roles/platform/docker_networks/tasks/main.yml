@@ -3,6 +3,7 @@
   community.docker.docker_network:
     name: "{{ item.name }}"
     driver: "{{ item.driver | default('bridge') }}"
+    ipam_config: "{{ [{'subnet': item.subnet}] if item.subnet is defined else omit }}"
     state: present
   loop: "{{ docker_networks }}"
   when: not ansible_check_mode

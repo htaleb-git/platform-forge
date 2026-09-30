@@ -6,4 +6,12 @@ nextcloud_container_name: nextcloud
 nextcloud_storage_owner: "{{ platform_admin_user }}"
 nextcloud_storage_group: "{{ platform_admin_user }}"
 
-nextcloud_image: "{{ docker_images.nextcloud.repository }}:{{ docker_images.nextcloud.tag }}"
+nextcloud_image: nextcloud:35.0.0-apache
+nextcloud_container_uid: 33
+nextcloud_container_gid: 33
+nextcloud_hostname: "nextcloud.{{ platform_domain }}"
+nextcloud_protocol: https
+nextcloud_trusted_proxy: "{{ platform_proxy_network }}"
+nextcloud_network_proxy: "{{ platform_proxy_network }}"
+traefik_tls_mode: internal
+traefik_acme_resolver: letsencrypt

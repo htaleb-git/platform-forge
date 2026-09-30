@@ -1,8 +1,0 @@
----
-- name: Add users to the docker group
-  ansible.builtin.user:
-    name: "{{ item }}"
-    groups: docker
-    append: true
-  loop: "{{ docker_users }}"
-  when: not ansible_check_mode

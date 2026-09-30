@@ -1,2 +1,0 @@
----
-network_netplan_file: /etc/netplan/50-cloud-init.yaml

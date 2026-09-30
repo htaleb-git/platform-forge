@@ -4,6 +4,22 @@
   become: true
   gather_facts: true
 
+  vars:
+    platform_apps_root: "{{ platform_root }}/apps"
+    platform_data_root: "{{ platform_root }}/data"
+    platform_proxy_network: proxy
+    platform_monitoring_network: monitoring
+    platform_monitoring_subnet: 172.23.0.0/16
+
+  pre_tasks:
+    - name: Validate monitoring capability dependencies
+      ansible.builtin.assert:
+        that:
+          - not grafana_enabled | bool or prometheus_enabled | bool
+        fail_msg: "Grafana requires Prometheus to be enabled."
+      tags:
+        - monitoring
+
   roles:
     - role: docker_networks
       when: cadvisor_enabled | bool or prometheus_enabled | bool or grafana_enabled | bool

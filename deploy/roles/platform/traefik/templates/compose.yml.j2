@@ -1,7 +1,7 @@
 services:
   traefik:
-    image: "{{ docker_images.traefik.repository }}:{{ docker_images.traefik.tag }}"
-    container_name: traefik
+    image: "{{ traefik_image }}"
+    container_name: "{{ traefik_container_name }}"
     restart: unless-stopped
 
     environment:
@@ -16,8 +16,6 @@ services:
 
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
-      - "--entrypoints.imaps.address=:993"
-
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
 
@@ -30,7 +28,6 @@ services:
     ports:
       - "{{ traefik_http_port }}:80"
       - "{{ traefik_https_port }}:443"
-      - "{{ traefik_imaps_port }}:993"
 
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
@@ -50,4 +47,4 @@ services:
 networks:
   proxy:
     external: true
-    name: {{ traefik_network_proxy }}
+    name: "{{ traefik_network_proxy }}"

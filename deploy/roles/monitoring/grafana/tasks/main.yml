@@ -1,4 +1,15 @@
 ---
+- name: Validate Grafana configuration
+  ansible.builtin.assert:
+    that:
+      - prometheus_enabled | bool
+      - grafana_app_dir is match('^/[^/]+')
+      - grafana_data_dir is match('^/[^/]+')
+      - grafana_provisioning_dir is match('^/[^/]+')
+      - grafana_dashboards_dir is match('^/[^/]+')
+      - grafana_hostname | length > 0
+    fail_msg: "Grafana requires enabled Prometheus and valid paths and hostname."
+
 - name: Create Grafana application directory
   ansible.builtin.file:
     path: "{{ grafana_app_dir }}"
@@ -82,9 +93,11 @@
     owner: root
     group: root
     mode: "0644"
-  loop:
-    - node-exporter-full.json
-    - cadvisor-docker.json
+  loop: >-
+    {{
+      (['node-exporter-full.json'] if node_exporter_enabled | bool else [])
+      + (['cadvisor-docker.json'] if cadvisor_enabled | bool else [])
+    }}
   notify: Restart grafana
   
 - name: Start Grafana

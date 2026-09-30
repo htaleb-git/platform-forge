@@ -1,83 +1,71 @@
 ---
-# Platform-wide identity and storage contract.
+# Required platform identity and access inputs.
 platform_admin_user: platform-admin
-platform_timezone: Etc/UTC
 platform_domain: example.com
-platform_ssh_port: 22
-platform_hostname: "{{ inventory_hostname }}"
-platform_fqdn: "{{ platform_hostname }}.{{ platform_domain }}"
-
-platform_root: /srv/platform-forge
-platform_apps_root: "{{ platform_root }}/apps"
-platform_data_root: "{{ platform_root }}/data"
-platform_backup_root: "{{ platform_root }}/backups"
-
-# Public keys are deployment-specific local controller paths.
 platform_admin_authorized_keys: []
-platform_ssh_password_authentication: false
+
+# Optional platform policy.
+platform_timezone: Etc/UTC
+platform_root: /srv/platform-forge
+# platform_hostname: platform01
+# platform_ssh_port: 22
+
+# Optional additive system packages and swap capability.
+system_update_additional_packages: []
+system_swap_enabled: false
 
 # Applications are opt-in.
-gitlab_enabled: false
-nextcloud_enabled: false
 n8n_enabled: false
+nextcloud_enabled: false
 wordpress_enabled: false
+gitlab_enabled: false
 
-# Node exporters and central monitoring services are separate capabilities.
+# Optional hostname overrides derive from platform_domain when omitted.
+# n8n_hostname: automation.example.com
+# nextcloud_hostname: cloud.example.com
+# wordpress_hostname: www.example.com
+# gitlab_hostname: code.example.com
+gitlab_ssh_port: 2222
+
+# Reverse proxy TLS. ACME requires a real contact email; internal mode requires
+# the certificate and private key placeholders documented in vault.yml.example.
+traefik_tls_mode: internal
+traefik_acme_email: ""
+
+# Monitoring capabilities remain independently opt-in. Grafana requires
+# Prometheus. Prometheus only scrapes enabled exporters.
 node_exporter_enabled: false
 cadvisor_enabled: false
 prometheus_enabled: false
 grafana_enabled: false
+prometheus_scrape_interval: 30s
+prometheus_retention_time: 30d
 
-# Application artifacts are independent from Restic repository snapshots.
-backup_gitlab_enabled: false
-backup_nextcloud_enabled: false
+# Application artifact policy. Enable only for an enabled application.
 backup_n8n_enabled: false
-backup_wordpress_enabled: false
+backup_n8n_schedule: "*-*-* 03:00:00"
+backup_n8n_generations_to_keep: 2
 
-# Generic Restic backend contract. Replace the example repository before use.
+backup_nextcloud_enabled: false
+backup_nextcloud_schedule: "*-*-* 03:10:00"
+backup_nextcloud_generations_to_keep: 2
+
+backup_wordpress_enabled: false
+backup_wordpress_schedule: "*-*-* 03:20:00"
+backup_wordpress_generations_to_keep: 2
+
+backup_gitlab_enabled: false
+backup_gitlab_schedule: "*-*-* 03:30:00"
+backup_gitlab_generations_to_keep: 2
+
+# Restic snapshots published application artifacts. Set a real repository and
+# Vault password before enabling it; the repository must already exist.
 restic_enabled: false
-restic_repository: "rest:https://backup.example.com/platform-forge"
-restic_environment: {}
-restic_options: []
-restic_backup_paths:
-  - "{{ platform_backup_root }}"
-restic_tags:
-  - platform-forge
-  - "{{ inventory_hostname }}"
+restic_repository: ""
 restic_retention:
   keep_daily: 7
   keep_weekly: 4
   keep_monthly: 12
-restic_prune_enabled: false
-
-# Shared container networks used by enabled components.
-docker_networks:
-  - name: proxy
-  - name: monitoring
-
-# Reverse proxy TLS. The example secrets file documents internal TLS material.
-traefik_tls_mode: internal
-traefik_tls_cert_name: platform.crt
-traefik_tls_private_key_name: platform.key
-
-# Application configuration belongs here; secrets belong in vault.yml.example.
-n8n_hostname: "n8n.{{ platform_domain }}"
-n8n_protocol: https
-n8n_postgres_db: n8n
-n8n_postgres_user: n8n
-n8n_network_proxy: proxy
-n8n_network_backend: n8n_backend
-
-nextcloud_hostname: "nextcloud.{{ platform_domain }}"
-nextcloud_network_proxy: proxy
-
-wordpress_hostname: "wordpress.{{ platform_domain }}"
-wordpress_db_name: wordpress
-wordpress_db_user: wordpress
-wordpress_network_proxy: proxy
-wordpress_network_backend: wordpress_backend
-
-gitlab_hostname: "gitlab.{{ platform_domain }}"
-gitlab_external_url: "https://{{ gitlab_hostname }}"
-gitlab_ssh_port: 2222
-gitlab_network_proxy: proxy
+restic_backup_schedule: "*-*-* 04:00:00"
+restic_check_schedule: "Sun *-*-* 03:00:00"
+restic_maintenance_schedule: "Sun *-*-* 04:00:00"

@@ -7,10 +7,21 @@ wordpress_mariadb_container_name: wordpress-mariadb
 wordpress_storage_owner: "{{ platform_admin_user }}"
 wordpress_storage_group: "{{ platform_admin_user }}"
 
-wordpress_image: "{{ docker_images.wordpress.repository }}:{{ docker_images.wordpress.tag }}"
-wordpress_mariadb_image: "{{ docker_images.mariadb.repository }}:{{ docker_images.mariadb.tag }}"
+wordpress_image: wordpress:7.1.2-php8.3-apache
+wordpress_mariadb_image: mariadb:11.8.9
+wordpress_cli_image: wordpress:cli-2.12.0-php8.3
+wordpress_container_uid: 33
+wordpress_container_gid: 33
+wordpress_mariadb_uid: 999
+wordpress_mariadb_gid: 999
 
-wordpress_db_password: "{{ vault_wordpress_db_password }}"
-wordpress_mariadb_root_password: "{{ vault_wordpress_mariadb_root_password }}"
+wordpress_hostname: "wordpress.{{ platform_domain }}"
+wordpress_db_name: wordpress
+wordpress_db_user: wordpress
+wordpress_network_proxy: "{{ platform_proxy_network }}"
+wordpress_network_backend: wordpress-backend
+traefik_tls_mode: internal
+traefik_acme_resolver: letsencrypt
 
-wordpress_cli_image: "{{ docker_images.wordpress_cli.repository }}:{{ docker_images.wordpress_cli.tag }}"
+wordpress_db_password: "{{ vault_wordpress_db_password | default('') }}"
+wordpress_mariadb_root_password: "{{ vault_wordpress_mariadb_root_password | default('') }}"

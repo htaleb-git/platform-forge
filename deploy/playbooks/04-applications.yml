@@ -4,6 +4,11 @@
   become: true
   gather_facts: true
 
+  vars:
+    platform_apps_root: "{{ platform_root }}/apps"
+    platform_data_root: "{{ platform_root }}/data"
+    platform_proxy_network: proxy
+
   roles:
     - role: gitlab
       when: gitlab_enabled | bool
@@ -68,3 +73,16 @@
         - never
         - operations
         - operate-n8n
+
+    - name: Operate WordPress
+      ansible.builtin.import_role:
+        name: manage_application
+      vars:
+        application_name: wordpress
+        application_compose_dir: "{{ wordpress_app_dir }}"
+        application_operation: "{{ operation }}"
+      when: wordpress_enabled | bool
+      tags:
+        - never
+        - operations
+        - operate-wordpress

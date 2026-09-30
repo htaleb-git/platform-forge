@@ -1,4 +1,14 @@
 ---
+- name: Validate Nextcloud configuration
+  ansible.builtin.assert:
+    that:
+      - nextcloud_app_dir is match('^/[^/]+')
+      - nextcloud_data_dir is match('^/[^/]+')
+      - nextcloud_hostname | length > 0
+      - nextcloud_protocol in ['http', 'https']
+      - nextcloud_trusted_proxy | length > 0
+    fail_msg: "Invalid Nextcloud path, hostname, protocol, or trusted proxy configuration."
+
 - name: Create Nextcloud application directory
   ansible.builtin.file:
     path: "{{ nextcloud_app_dir }}"

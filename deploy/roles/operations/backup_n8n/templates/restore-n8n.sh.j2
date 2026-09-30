@@ -4,10 +4,10 @@ set -Eeuo pipefail
 [[ $# -eq 1 ]] || { echo "Usage: $0 <validated-generation-directory>" >&2; exit 2; }
 GENERATION_DIR="$1"
 DUMP_FILE="${GENERATION_DIR}/{{ backup_n8n_dump_name }}"
-POSTGRES_CONTAINER="{{ n8n_postgres_container_name }}"
-N8N_CONTAINER="{{ n8n_container_name }}"
-POSTGRES_USER="{{ n8n_postgres_user }}"
-POSTGRES_DB="{{ n8n_postgres_db }}"
+POSTGRES_CONTAINER="{{ backup_n8n_postgres_container_name }}"
+N8N_CONTAINER="{{ backup_n8n_container_name }}"
+POSTGRES_USER="{{ backup_n8n_postgres_user }}"
+POSTGRES_DB="{{ backup_n8n_postgres_db }}"
 ROLLBACK_DIR="{{ backup_n8n_restore_dir }}"
 ROLLBACK_FILE="${ROLLBACK_DIR}/rollback-$(date -u +%Y%m%dT%H%M%SZ)-$$.dump"
 MUTATION_STARTED=0

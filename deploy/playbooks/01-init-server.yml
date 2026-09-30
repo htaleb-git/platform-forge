@@ -9,10 +9,10 @@
       ansible.builtin.assert:
         that:
           - platform_admin_user is match('^[a-z_][a-z0-9_-]*$')
-          - platform_hostname is match('^[a-z0-9][a-z0-9-]{0,62}$')
+          - platform_hostname | default(inventory_hostname) is match('^[a-z0-9][a-z0-9-]{0,62}$')
           - platform_domain | length > 0
-          - platform_ssh_port | int >= 1
-          - platform_ssh_port | int <= 65535
+          - platform_ssh_port | default(22) | int >= 1
+          - platform_ssh_port | default(22) | int <= 65535
           - platform_admin_authorized_keys is sequence
           - platform_admin_authorized_keys is not string
           - platform_admin_authorized_keys | length > 0
@@ -49,7 +49,7 @@
   tasks:
     - name: Set server hostname
       ansible.builtin.hostname:
-        name: "{{ platform_hostname }}"
+        name: "{{ platform_hostname | default(inventory_hostname) }}"
 
     - name: Ensure hostname is present in /etc/hosts
       ansible.builtin.lineinfile:
@@ -57,8 +57,8 @@
         regexp: '^127\.0\.1\.1(\s+.*)?$'
         line: >-
           127.0.1.1
-          {{ platform_fqdn }}
-          {{ platform_hostname }}
+          {{ platform_fqdn | default((platform_hostname | default(inventory_hostname)) + '.' + platform_domain) }}
+          {{ platform_hostname | default(inventory_hostname) }}
         state: present
         backup: true
 
@@ -94,7 +94,7 @@
     - name: Allow the new SSH port before changing SSH configuration
       community.general.ufw:
         rule: allow
-        port: "{{ platform_ssh_port }}"
+        port: "{{ platform_ssh_port | default(22) }}"
         proto: tcp
         comment: SSH
 
@@ -102,7 +102,7 @@
       ansible.builtin.lineinfile:
         path: /etc/ssh/sshd_config
         regexp: '^\s*#?\s*Port\s+'
-        line: "Port {{ platform_ssh_port }}"
+        line: "Port {{ platform_ssh_port | default(22) }}"
         state: present
         backup: true
         validate: "/usr/sbin/sshd -t -f %s"
@@ -118,18 +118,6 @@
         validate: "/usr/sbin/sshd -t -f %s"
       notify: Reload systemd and restart SSH socket
 
-    - name: Disable SSH password authentication
-      ansible.builtin.lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: '^\s*#?\s*PasswordAuthentication\s+'
-        line: >-
-          PasswordAuthentication
-          {{ 'yes' if platform_ssh_password_authentication else 'no' }}
-        state: present
-        backup: true
-        validate: "/usr/sbin/sshd -t -f %s"
-      notify: Reload systemd and restart SSH socket   
-
     - name: Configure SSH hardening overrides
       ansible.builtin.copy:
         dest: /etc/ssh/sshd_config.d/00-hardening.conf
@@ -138,6 +126,8 @@
         mode: "0644"
         content: |
           PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          AuthenticationMethods publickey
           PermitRootLogin no
       notify: Reload systemd and restart SSH socket   
 
@@ -147,7 +137,7 @@
     - name: Wait for SSH to listen on the new port
       ansible.builtin.wait_for:
         host: "{{ ansible_host }}"
-        port: "{{ platform_ssh_port }}"
+        port: "{{ platform_ssh_port | default(22) }}"
         timeout: 30
       delegate_to: localhost
       become: false

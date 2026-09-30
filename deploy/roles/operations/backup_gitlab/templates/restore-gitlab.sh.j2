@@ -7,10 +7,10 @@ APPLICATION_DIR="${GENERATION_DIR}/{{ backup_gitlab_application_subdir }}"
 CONFIG_DIR="${GENERATION_DIR}/{{ backup_gitlab_config_subdir }}"
 METADATA_DIR="${GENERATION_DIR}/{{ backup_gitlab_metadata_subdir }}"
 BACKUP_ARCHIVE="${APPLICATION_DIR}/{{ backup_gitlab_dump_name }}"
-GITLAB_CONTAINER="{{ gitlab_container_name }}"
-GITLAB_APP_DIR="{{ gitlab_app_dir }}"
-GITLAB_DATA_DIR="{{ gitlab_data_store_dir }}"
-GITLAB_CONFIG_DIR="{{ gitlab_config_dir }}"
+GITLAB_CONTAINER="{{ backup_gitlab_container_name }}"
+GITLAB_APP_DIR="{{ backup_gitlab_app_dir }}"
+GITLAB_DATA_DIR="{{ backup_gitlab_data_store_dir }}"
+GITLAB_CONFIG_DIR="{{ backup_gitlab_config_dir }}"
 ROLLBACK_DIR="{{ backup_gitlab_restore_dir }}/rollback-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 ROLLBACK_DATA="${ROLLBACK_DIR}/data"
 ROLLBACK_CONFIG="${ROLLBACK_DIR}/config"
@@ -40,7 +40,7 @@ CURRENT_VERSION="$(awk '/GitLab information/{seen=1;next} seen && /^Version:/{pr
 BACKUP_VERSION="$(awk '/GitLab information/{seen=1;next} seen && /^Version:/{print $2;exit}' "${METADATA_DIR}/{{ backup_gitlab_version_file }}")"
 [[ -n "${CURRENT_VERSION}" && "${CURRENT_VERSION}" == "${BACKUP_VERSION}" ]] \
   || { echo "ERROR: GitLab version mismatch or missing version metadata" >&2; exit 1; }
-[[ "${GITLAB_DATA_DIR}" == "{{ gitlab_data_dir }}/"* && "${GITLAB_DATA_DIR}" != "{{ gitlab_data_dir }}" ]] \
+[[ "${GITLAB_DATA_DIR}" == "{{ backup_gitlab_data_dir }}/"* && "${GITLAB_DATA_DIR}" != "{{ backup_gitlab_data_dir }}" ]] \
   || { echo "ERROR: unsafe GitLab data directory" >&2; exit 1; }
 [[ -d "${GITLAB_DATA_DIR}" && ! -L "${GITLAB_DATA_DIR}" \
    && -d "${GITLAB_CONFIG_DIR}" && ! -L "${GITLAB_CONFIG_DIR}" \
