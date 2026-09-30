@@ -1,0 +1,40 @@
+---
+- name: Configure platform monitoring capabilities
+  hosts: platform_nodes
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: docker_networks
+      when: cadvisor_enabled | bool or prometheus_enabled | bool or grafana_enabled | bool
+      tags:
+        - monitoring
+        - monitoring-network
+
+    - role: node_exporter
+      when: node_exporter_enabled | bool
+      tags:
+        - monitoring
+        - exporters
+        - node-exporter
+
+    - role: cadvisor
+      when: cadvisor_enabled | bool
+      tags:
+        - monitoring
+        - exporters
+        - cadvisor
+
+    - role: prometheus
+      when: prometheus_enabled | bool
+      tags:
+        - monitoring
+        - central-monitoring
+        - prometheus
+
+    - role: grafana
+      when: grafana_enabled | bool
+      tags:
+        - monitoring
+        - central-monitoring
+        - grafana

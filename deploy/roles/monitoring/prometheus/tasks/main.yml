@@ -1,0 +1,56 @@
+---
+- name: Create Prometheus application directory
+  ansible.builtin.file:
+    path: "{{ prometheus_app_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create Prometheus configuration directory
+  ansible.builtin.file:
+    path: "{{ prometheus_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create Prometheus data directory
+  ansible.builtin.file:
+    path: "{{ prometheus_data_dir }}"
+    state: directory
+    owner: "65534"
+    group: "65534"
+    mode: "0755"
+
+- name: Deploy Prometheus configuration
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ prometheus_config_dir }}/prometheus.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart prometheus
+
+- name: Deploy Prometheus compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ prometheus_app_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart prometheus
+
+- name: Allow monitoring network to access Node Exporter
+  community.general.ufw:
+    rule: allow
+    proto: tcp
+    src: "{{ monitoring_docker_subnet }}"
+    port: "{{ node_exporter_port }}"
+    comment: Prometheus to Node Exporter  
+
+- name: Start Prometheus
+  community.docker.docker_compose_v2:
+    project_src: "{{ prometheus_app_dir }}"
+    state: present
+  when: not ansible_check_mode

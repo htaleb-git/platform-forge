@@ -1,0 +1,9 @@
+---
+- name: Stop {{ application_name }}
+  ansible.builtin.command:
+    cmd: docker compose stop
+    chdir: "{{ application_compose_dir }}"
+  register: application_stop_result
+  changed_when: >-
+    'Stopped' in application_stop_result.stdout
+    or 'Stopping' in application_stop_result.stderr

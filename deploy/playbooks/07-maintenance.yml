@@ -1,0 +1,23 @@
+---
+- name: Maintain platform nodes
+  hosts: platform_nodes
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: system_update
+      vars:
+        system_update_upgrade_type: safe
+        system_update_autoremove: false
+        system_update_reboot_enabled: false
+      tags:
+        - maintenance
+        - system
+        - updates
+
+    - role: server_maintenance
+      vars:
+        maintenance_check_restic: "{{ restic_enabled | bool }}"
+      tags:
+        - maintenance
+        - health

@@ -1,0 +1,5 @@
+---
+- name: Start {{ application_name }}
+  community.docker.docker_compose_v2:
+    project_src: "{{ application_compose_dir }}"
+    state: present

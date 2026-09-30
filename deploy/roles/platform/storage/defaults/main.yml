@@ -1,0 +1,8 @@
+---
+storage_root: "{{ platform_root }}"
+storage_directories:
+  - apps
+  - data
+  - backups
+storage_owner: "{{ platform_admin_user }}"
+storage_group: "{{ platform_admin_user }}"

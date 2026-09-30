@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+set -a
+source "{{ restic_environment_file }}"
+set +a
+
+METRICS_DIR="{{ restic_metrics_dir }}"
+METRICS_FILE="${METRICS_DIR}/restic_backup.prom"
+METRICS_TMP="${METRICS_FILE}.tmp.$$"
+START_TS="$(date +%s)"
+LAST_SUCCESS_TS=0
+
+if [[ -f "${METRICS_FILE}" ]]; then
+  LAST_SUCCESS_TS="$(awk '/^platform_forge_restic_backup_last_success_timestamp / {print $2}' "${METRICS_FILE}" | tail -1)"
+  LAST_SUCCESS_TS="${LAST_SUCCESS_TS:-0}"
+fi
+
+write_metrics() {
+  local exit_code="$1"
+  local end_ts status last_success
+  set +e
+  [[ -d "${METRICS_DIR}" ]] || return 0
+  end_ts="$(date +%s)"
+  status=0
+  last_success="${LAST_SUCCESS_TS}"
+  if [[ "${exit_code}" -eq 0 ]]; then
+    status=1
+    last_success="${end_ts}"
+  fi
+  cat > "${METRICS_TMP}" <<EOF
+# HELP platform_forge_restic_backup_status Last Restic backup status (1=success, 0=failure)
+# TYPE platform_forge_restic_backup_status gauge
+platform_forge_restic_backup_status ${status}
+# HELP platform_forge_restic_backup_last_run_timestamp Unix timestamp of the last Restic backup attempt
+# TYPE platform_forge_restic_backup_last_run_timestamp gauge
+platform_forge_restic_backup_last_run_timestamp ${end_ts}
+# HELP platform_forge_restic_backup_last_success_timestamp Unix timestamp of the last successful Restic backup
+# TYPE platform_forge_restic_backup_last_success_timestamp gauge
+platform_forge_restic_backup_last_success_timestamp ${last_success}
+# HELP platform_forge_restic_backup_duration_seconds Duration of the last Restic backup attempt
+# TYPE platform_forge_restic_backup_duration_seconds gauge
+platform_forge_restic_backup_duration_seconds $((end_ts - START_TS))
+EOF
+  mv -f "${METRICS_TMP}" "${METRICS_FILE}"
+}
+
+trap 'exit_code=$?; write_metrics "${exit_code}"' EXIT
+
+exec 8>/run/lock/platform-forge-backup-artifacts.lock
+flock -n 8 || { echo "ERROR: an application artifact backup is running" >&2; exit 1; }
+exec 9>"{{ restic_lock_file }}"
+flock -n 9 || { echo "ERROR: another Restic operation is running" >&2; exit 1; }
+
+{% for path in restic_backup_paths %}
+[[ -e {{ path | quote }} ]] || { echo "ERROR: a configured Restic backup path is missing" >&2; exit 1; }
+{% endfor %}
+
+restic \
+{% for option in restic_options %}  {{ option | quote }} \
+{% endfor %}  backup \
+  --exclude {{ (platform_backup_root + '/.staging') | quote }} \
+{% for tag in restic_tags %}  --tag {{ tag | quote }} \
+{% endfor %}{% for path in restic_backup_paths %}  {{ path | quote }}{% if not loop.last %} \
+{% endif %}{% endfor %}

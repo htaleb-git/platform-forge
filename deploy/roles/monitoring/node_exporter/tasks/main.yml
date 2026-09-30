@@ -1,0 +1,65 @@
+---
+- name: Create node_exporter system group
+  ansible.builtin.group:
+    name: "{{ node_exporter_group }}"
+    system: true
+
+- name: Create node_exporter system user
+  ansible.builtin.user:
+    name: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Create Node Exporter textfile collector directory
+  ansible.builtin.file:
+    path: "{{ node_exporter_textfile_dir }}"
+    state: directory
+    owner: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    mode: "0755"
+    
+- name: Download node_exporter
+  ansible.builtin.get_url:
+    url: "{{ node_exporter_download_url }}"
+    dest: "/tmp/{{ node_exporter_archive }}"
+    mode: "0644"
+
+- name: Extract node_exporter archive
+  ansible.builtin.unarchive:
+    src: "/tmp/{{ node_exporter_archive }}"
+    dest: /tmp
+    remote_src: true
+    creates: "{{ node_exporter_tmp_dir }}"
+  when: not ansible_check_mode
+
+- name: Install node_exporter binary
+  ansible.builtin.copy:
+    src: "{{ node_exporter_tmp_dir }}/node_exporter"
+    dest: "{{ node_exporter_binary }}"
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+  notify: Restart node_exporter
+  when: not ansible_check_mode
+
+- name: Install node_exporter systemd service
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart node_exporter
+
+- name: Enable and start node_exporter
+  ansible.builtin.systemd:
+    name: node_exporter
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: not ansible_check_mode

@@ -1,0 +1,33 @@
+---
+- name: Validate supported operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == "Debian"
+    fail_msg: >-
+      The system_update role currently supports Debian-based systems only.
+      Detected OS family: {{ ansible_facts.os_family }}
+
+- name: Update APT package cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: "{{ system_update_cache_valid_time | int }}"
+
+- name: Upgrade installed packages
+  ansible.builtin.apt:
+    upgrade: "{{ system_update_upgrade_type }}"
+
+- name: Remove unused dependencies
+  ansible.builtin.apt:
+    autoremove: true
+    purge: "{{ system_update_autoremove_purge | bool }}"
+  when: system_update_autoremove | bool
+
+- name: Clean obsolete package files
+  ansible.builtin.apt:
+    autoclean: true
+  when: system_update_autoclean | bool
+
+- name: Check whether a reboot is required
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: system_update_reboot_required

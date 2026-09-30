@@ -1,0 +1,65 @@
+---
+- name: Create Nextcloud application directory
+  ansible.builtin.file:
+    path: "{{ nextcloud_app_dir }}"
+    state: directory
+    owner: "{{ nextcloud_storage_owner }}"
+    group: "{{ nextcloud_storage_group }}"
+    mode: "0755"
+
+- name: Create Nextcloud data directory
+  ansible.builtin.file:
+    path: "{{ nextcloud_data_dir }}/html"
+    state: directory
+    owner: "{{ nextcloud_container_uid }}"
+    group: "{{ nextcloud_container_gid }}"
+    mode: "0755"
+
+- name: Deploy Nextcloud Docker Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ nextcloud_app_dir }}/compose.yml"
+    owner: "{{ nextcloud_storage_owner }}"
+    group: "{{ nextcloud_storage_group }}"
+    mode: "0644"
+
+- name: Deploy Nextcloud stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ nextcloud_app_dir }}"
+    state: present
+  when: not ansible_check_mode
+
+- name: Wait for Nextcloud container to be running
+  community.docker.docker_container_info:
+    name: "{{ nextcloud_container_name }}"
+  register: nextcloud_container_info
+  until:
+    - nextcloud_container_info.exists
+    - nextcloud_container_info.container.State.Running
+  retries: 30
+  delay: 5
+  when: not ansible_check_mode
+
+- name: Configure Nextcloud trusted proxy
+  ansible.builtin.command:
+    cmd: >
+      docker exec -u www-data {{ nextcloud_container_name }}
+      php occ config:system:set trusted_proxies 0
+      --value={{ nextcloud_trusted_proxy }}
+  when: not ansible_check_mode
+
+- name: Configure Nextcloud overwrite protocol
+  ansible.builtin.command:
+    cmd: >
+      docker exec -u www-data {{ nextcloud_container_name }}
+      php occ config:system:set overwriteprotocol
+      --value={{ nextcloud_protocol }}
+  when: not ansible_check_mode
+
+- name: Configure Nextcloud overwrite host
+  ansible.builtin.command:
+    cmd: >
+      docker exec -u www-data {{ nextcloud_container_name }}
+      php occ config:system:set overwritehost
+      --value={{ nextcloud_hostname }}
+  when: not ansible_check_mode

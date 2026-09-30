@@ -1,0 +1,25 @@
+---
+restic_enabled: false
+restic_repository: ""
+restic_password_file: /etc/platform-forge/restic/password
+restic_environment_file: /etc/platform-forge/restic/environment
+restic_environment: {}
+restic_options: []
+restic_backup_paths:
+  - "{{ platform_backup_root }}"
+restic_tags:
+  - platform-forge
+  - "{{ inventory_hostname }}"
+
+restic_retention: {}
+restic_prune_enabled: false
+
+restic_backup_schedule: "*-*-* 04:00:00"
+restic_backup_randomized_delay: 15m
+restic_check_schedule: "Sun *-*-* 03:00:00"
+restic_check_randomized_delay: 30m
+restic_maintenance_schedule: "Sun *-*-* 04:00:00"
+restic_maintenance_randomized_delay: 30m
+
+restic_lock_file: /run/lock/platform-forge-restic.lock
+restic_metrics_dir: /var/lib/node_exporter/textfile_collector

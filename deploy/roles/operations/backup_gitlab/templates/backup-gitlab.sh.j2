@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+GITLAB_CONTAINER="{{ gitlab_container_name }}"
+BACKUP_ROOT="{{ backup_gitlab_root }}"
+GENERATIONS_DIR="{{ backup_gitlab_generations_dir }}"
+STAGING_PARENT="{{ platform_backup_root }}/.staging/gitlab"
+GENERATION_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+STAGING_DIR="${STAGING_PARENT}/${GENERATION_ID}"
+GENERATION_DIR="${GENERATIONS_DIR}/${GENERATION_ID}"
+APPLICATION_DIR="${STAGING_DIR}/{{ backup_gitlab_application_subdir }}"
+CONFIG_DIR="${STAGING_DIR}/{{ backup_gitlab_config_subdir }}"
+METADATA_DIR="${STAGING_DIR}/{{ backup_gitlab_metadata_subdir }}"
+KEEP_GENERATIONS={{ backup_gitlab_generations_to_keep | int }}
+
+METRICS_DIR="{{ backup_gitlab_metrics_dir }}"
+METRICS_FILE="${METRICS_DIR}/backup_gitlab.prom"
+METRICS_TMP="${METRICS_FILE}.tmp.$$"
+START_TS="$(date +%s)"
+LAST_SUCCESS_TS=0
+SKIPPED=0
+
+if [[ -f "${METRICS_FILE}" ]]; then
+  LAST_SUCCESS_TS="$(awk '/^platform_forge_backup_last_success_timestamp\{backup="gitlab"\}/ {print $2}' "${METRICS_FILE}" | tail -1)"
+  LAST_SUCCESS_TS="${LAST_SUCCESS_TS:-0}"
+fi
+
+write_metrics() {
+  local exit_code="$1" end_ts status last_success
+  set +e
+  [[ -d "${METRICS_DIR}" ]] || return 0
+  end_ts="$(date +%s)"; status=0; last_success="${LAST_SUCCESS_TS}"
+  if [[ "${SKIPPED}" -eq 1 ]]; then status=1
+  elif [[ "${exit_code}" -eq 0 ]]; then status=1; last_success="${end_ts}"
+  fi
+  cat > "${METRICS_TMP}" <<EOF
+# HELP platform_forge_backup_last_status Last application artifact backup status (1=success, 0=failure)
+# TYPE platform_forge_backup_last_status gauge
+platform_forge_backup_last_status{backup="gitlab"} ${status}
+# HELP platform_forge_backup_last_run_timestamp Unix timestamp of the last application backup attempt
+# TYPE platform_forge_backup_last_run_timestamp gauge
+platform_forge_backup_last_run_timestamp{backup="gitlab"} ${end_ts}
+# HELP platform_forge_backup_last_success_timestamp Unix timestamp of the last successful application backup
+# TYPE platform_forge_backup_last_success_timestamp gauge
+platform_forge_backup_last_success_timestamp{backup="gitlab"} ${last_success}
+# HELP platform_forge_backup_last_duration_seconds Duration of the last application backup attempt
+# TYPE platform_forge_backup_last_duration_seconds gauge
+platform_forge_backup_last_duration_seconds{backup="gitlab"} $((end_ts - START_TS))
+# HELP platform_forge_backup_last_skipped Whether the application backup was skipped (1=yes, 0=no)
+# TYPE platform_forge_backup_last_skipped gauge
+platform_forge_backup_last_skipped{backup="gitlab"} ${SKIPPED}
+EOF
+  mv -f "${METRICS_TMP}" "${METRICS_FILE}"
+}
+
+cleanup() {
+  local exit_code=$?
+  rm -rf -- "${STAGING_DIR}"
+  write_metrics "${exit_code}"
+  exit "${exit_code}"
+}
+trap cleanup EXIT
+
+exec 9>/run/lock/platform-forge-backup-artifacts.lock
+flock -n 9 || { echo "ERROR: another application artifact backup is running" >&2; exit 1; }
+
+if [[ "$(docker inspect -f '{{ "{{.State.Running}}" }}' "${GITLAB_CONTAINER}" 2>/dev/null || true)" != "true" ]]; then
+  echo "INFO: GitLab container is not running; backup skipped"
+  SKIPPED=1
+  exit 0
+fi
+
+mkdir -p "${APPLICATION_DIR}" "${CONFIG_DIR}" "${METADATA_DIR}"
+docker exec "${GITLAB_CONTAINER}" gitlab-backup create
+
+LATEST_BACKUP="$(docker exec "${GITLAB_CONTAINER}" bash -c 'ls -1t /var/opt/gitlab/backups/*_gitlab_backup.tar | head -1')"
+[[ -n "${LATEST_BACKUP}" ]] || { echo "ERROR: GitLab did not produce a backup archive" >&2; exit 1; }
+
+basename "${LATEST_BACKUP}" > "${METADATA_DIR}/{{ backup_gitlab_filename_metadata }}"
+docker cp "${GITLAB_CONTAINER}:${LATEST_BACKUP}" "${APPLICATION_DIR}/{{ backup_gitlab_dump_name }}"
+docker cp "${GITLAB_CONTAINER}:/etc/gitlab/gitlab.rb" "${CONFIG_DIR}/gitlab.rb"
+docker cp "${GITLAB_CONTAINER}:/etc/gitlab/gitlab-secrets.json" "${CONFIG_DIR}/gitlab-secrets.json"
+docker exec "${GITLAB_CONTAINER}" gitlab-rake gitlab:env:info > "${METADATA_DIR}/{{ backup_gitlab_version_file }}"
+
+[[ -s "${APPLICATION_DIR}/{{ backup_gitlab_dump_name }}" \
+   && -s "${CONFIG_DIR}/gitlab.rb" \
+   && -s "${CONFIG_DIR}/gitlab-secrets.json" \
+   && -s "${METADATA_DIR}/{{ backup_gitlab_filename_metadata }}" \
+   && -s "${METADATA_DIR}/{{ backup_gitlab_version_file }}" ]] \
+  || { echo "ERROR: incomplete GitLab backup generation" >&2; exit 1; }
+chmod 0600 "${CONFIG_DIR}/gitlab-secrets.json"
+
+mv "${STAGING_DIR}" "${GENERATION_DIR}"
+ln -s "generations/${GENERATION_ID}" "${BACKUP_ROOT}/.current.$$"
+mv -Tf "${BACKUP_ROOT}/.current.$$" "${BACKUP_ROOT}/current"
+
+find "${GENERATIONS_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+  | sort -r | tail -n "+$((KEEP_GENERATIONS + 1))" \
+  | while IFS= read -r old_generation; do
+      rm -rf -- "${GENERATIONS_DIR}/${old_generation}"
+    done
+
+echo "GitLab backup generation published: ${GENERATION_ID}"

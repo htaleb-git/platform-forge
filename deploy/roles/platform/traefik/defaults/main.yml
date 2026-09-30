@@ -1,0 +1,13 @@
+---
+traefik_app_dir: "{{ platform_apps_root }}/traefik"
+traefik_tls_cert_dir: "{{ traefik_app_dir }}/certs"
+traefik_dynamic_dir: "{{ traefik_app_dir }}/dynamic"
+  
+traefik_network_proxy: "{{ docker_networks[0].name }}"
+traefik_http_port: 80
+traefik_https_port: 443
+traefik_imaps_port: 993
+traefik_tls_domain: "{{ platform_domain }}"
+
+traefik_storage_owner: "{{ platform_admin_user }}"
+traefik_storage_group: "{{ platform_admin_user }}"

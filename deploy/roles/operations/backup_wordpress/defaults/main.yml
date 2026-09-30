@@ -1,0 +1,21 @@
+---
+backup_wordpress_enabled: false
+backup_wordpress_root: "{{ platform_backup_root }}/wordpress"
+backup_wordpress_generations_dir: "{{ backup_wordpress_root }}/generations"
+backup_wordpress_dir: "{{ backup_wordpress_root }}/current"
+backup_wordpress_restore_dir: /var/lib/platform-forge/restore/wordpress
+backup_wordpress_dump_name: wordpress.sql
+backup_wordpress_content_name: wp-content.tar.gz
+backup_wordpress_generations_to_keep: 2
+backup_wordpress_schedule: "*-*-* 03:20:00"
+backup_wordpress_randomized_delay: 5m
+backup_wordpress_metrics_dir: /var/lib/node_exporter/textfile_collector
+backup_wordpress_container_name: "{{ wordpress_container_name }}"
+backup_wordpress_mariadb_container_name: "{{ wordpress_mariadb_container_name }}"
+
+backup_wordpress_content_dir: "{{ wordpress_data_dir }}/html/wp-content"
+
+backup_wordpress_owner: root
+backup_wordpress_group: root
+backup_wordpress_dir_mode: "0700"
+backup_wordpress_file_mode: "0600"

@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup GitLab
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/backup-gitlab.sh
+User=root

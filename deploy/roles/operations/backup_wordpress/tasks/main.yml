@@ -1,0 +1,76 @@
+---
+- name: Validate WordPress backup publication paths
+  ansible.builtin.assert:
+    that:
+      - backup_wordpress_root.startswith(platform_backup_root + '/')
+      - backup_wordpress_generations_to_keep | int >= 1
+    fail_msg: "Invalid WordPress backup publication configuration."
+
+- name: Create WordPress backup publication directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ backup_wordpress_owner }}"
+    group: "{{ backup_wordpress_group }}"
+    mode: "{{ backup_wordpress_dir_mode }}"
+  loop:
+    - "{{ backup_wordpress_root }}"
+    - "{{ backup_wordpress_generations_dir }}"
+    - "{{ platform_backup_root }}/.staging/wordpress"
+    - "{{ backup_wordpress_restore_dir }}"
+
+- name: Deploy WordPress backup script
+  ansible.builtin.template:
+    src: backup-wordpress.sh.j2
+    dest: /usr/local/sbin/backup-wordpress.sh
+    owner: root
+    group: root
+    mode: "0750"
+  no_log: true
+
+- name: Deploy WordPress backup systemd service
+  ansible.builtin.template:
+    src: backup-wordpress.service.j2
+    dest: /etc/systemd/system/backup-wordpress.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Deploy WordPress backup systemd timer
+  ansible.builtin.template:
+    src: backup-wordpress.timer.j2
+    dest: /etc/systemd/system/backup-wordpress.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Enable WordPress backup timer
+  ansible.builtin.systemd:
+    name: backup-wordpress.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - backup_wordpress_enabled | bool
+    - not ansible_check_mode
+
+- name: Disable WordPress backup timer
+  ansible.builtin.systemd:
+    name: backup-wordpress.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when:
+    - not backup_wordpress_enabled | bool
+    - not ansible_check_mode
+
+- name: Deploy WordPress restore script
+  ansible.builtin.template:
+    src: restore-wordpress.sh.j2
+    dest: /usr/local/sbin/restore-wordpress.sh
+    owner: root
+    group: root
+    mode: "0750"    
+  no_log: true

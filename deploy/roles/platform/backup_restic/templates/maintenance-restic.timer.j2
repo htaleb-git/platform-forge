@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly Restic repository maintenance
+
+[Timer]
+OnCalendar={{ restic_maintenance_schedule }}
+Persistent=true
+RandomizedDelaySec={{ restic_maintenance_randomized_delay }}
+Unit=maintenance-restic.service
+
+[Install]
+WantedBy=timers.target

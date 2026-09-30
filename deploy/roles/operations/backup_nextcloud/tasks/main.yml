@@ -1,0 +1,79 @@
+---
+- name: Install Nextcloud backup dependencies
+  ansible.builtin.package:
+    name:
+      - sqlite3
+    state: present
+
+- name: Validate Nextcloud backup publication paths
+  ansible.builtin.assert:
+    that:
+      - backup_nextcloud_root.startswith(platform_backup_root + '/')
+      - backup_nextcloud_generations_to_keep | int >= 1
+    fail_msg: "Invalid Nextcloud backup publication configuration."
+
+- name: Create Nextcloud backup publication directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ backup_nextcloud_owner }}"
+    group: "{{ backup_nextcloud_group }}"
+    mode: "{{ backup_nextcloud_dir_mode }}"
+  loop:
+    - "{{ backup_nextcloud_root }}"
+    - "{{ backup_nextcloud_generations_dir }}"
+    - "{{ platform_backup_root }}/.staging/nextcloud"
+
+- name: Deploy nextcloud backup script
+  ansible.builtin.template:
+    src: backup-nextcloud.sh.j2
+    dest: /usr/local/sbin/backup-nextcloud.sh
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Deploy Nextcloud backup systemd service
+  ansible.builtin.template:
+    src: backup-nextcloud.service.j2
+    dest: /etc/systemd/system/backup-nextcloud.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Deploy Nextcloud backup systemd timer
+  ansible.builtin.template:
+    src: backup-nextcloud.timer.j2
+    dest: /etc/systemd/system/backup-nextcloud.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Enable Nextcloud backup timer
+  ansible.builtin.systemd:
+    name: backup-nextcloud.timer
+    enabled: true
+    state: started
+    daemon_reload: true    
+  when: 
+    - backup_nextcloud_enabled | bool
+    - ansible_check_mode == false    
+
+- name: Disable Nextcloud backup timer
+  ansible.builtin.systemd:
+    name: backup-nextcloud.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when: 
+    - not backup_nextcloud_enabled | bool
+    - ansible_check_mode == false  
+
+- name: Deploy Nextcloud restore script
+  ansible.builtin.template:
+    src: restore-nextcloud.sh.j2
+    dest: /usr/local/sbin/restore-nextcloud.sh
+    owner: root
+    group: root
+    mode: "0750"

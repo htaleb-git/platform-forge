@@ -1,0 +1,17 @@
+---
+n8n_enabled: false
+n8n_app_dir: "{{ platform_apps_root }}/n8n"
+n8n_data_dir: "{{ platform_data_root }}/n8n"
+n8n_storage_owner: "{{ platform_admin_user }}"
+n8n_storage_group: "{{ platform_admin_user }}"
+
+n8n_image: "{{ docker_images.n8n.repository }}:{{ docker_images.n8n.tag }}"
+n8n_postgres_image: "{{ docker_images.postgres.repository }}:{{ docker_images.postgres.tag }}"
+
+n8n_encryption_key: "{{ vault_n8n_encryption_key }}"
+n8n_postgres_password: "{{ vault_n8n_postgres_password }}"
+
+n8n_nodes_exclude:
+  - n8n-nodes-base.localFileTrigger
+
+n8n_extra_volumes: []

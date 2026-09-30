@@ -1,0 +1,35 @@
+services:
+  grafana:
+    image: "{{ grafana_image }}"
+    container_name: "{{ grafana_container_name }}"
+
+    restart: "{{ grafana_restart_policy }}"
+
+    volumes:
+      - "{{ grafana_data_dir }}:/var/lib/grafana"
+      - "{{ grafana_provisioning_dir }}:/etc/grafana/provisioning:ro"
+      - "{{ grafana_dashboards_dir }}:/var/lib/grafana/dashboards:ro"
+
+    networks:
+      - monitoring
+      - proxy
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      
+      - "traefik.http.routers.grafana.rule=Host(`{{ grafana_hostname }}`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls=true"
+
+{% if traefik_tls_mode == "acme" %}
+      - "traefik.http.routers.grafana.tls.certresolver={{ traefik_acme_resolver }}"
+{% endif %}
+
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+      
+networks:
+  monitoring:
+    external: true
+  proxy:
+    external: true    

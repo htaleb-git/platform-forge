@@ -1,0 +1,68 @@
+---
+- name: Validate WordPress configuration
+  ansible.builtin.assert:
+    that:
+      - wordpress_app_dir is match('^/[^/]+')
+      - wordpress_data_dir is match('^/[^/]+')
+      - wordpress_hostname | length > 0
+      - wordpress_db_password | length > 0
+      - wordpress_db_password != 'CHANGE_ME'
+      - wordpress_mariadb_root_password | length > 0
+      - wordpress_mariadb_root_password != 'CHANGE_ME'
+    fail_msg: "Invalid WordPress paths, hostname, or secret configuration."
+  no_log: true
+
+- name: Create WordPress application directory
+  ansible.builtin.file:
+    path: "{{ wordpress_app_dir }}"
+    state: directory
+    owner: "{{ wordpress_storage_owner }}"
+    group: "{{ wordpress_storage_group }}"
+    mode: "0755"
+
+- name: Create WordPress application data directory
+  ansible.builtin.file:
+    path: "{{ wordpress_data_dir }}/html"
+    state: directory
+    owner: "{{ wordpress_container_uid }}"
+    group: "{{ wordpress_container_gid }}"
+    mode: "0755"
+
+- name: Create WordPress MariaDB data directory
+  ansible.builtin.file:
+    path: "{{ wordpress_data_dir }}/mariadb"
+    state: directory
+    owner: "{{ wordpress_mariadb_uid }}"
+    group: "{{ wordpress_mariadb_gid }}"
+    mode: "0700"
+
+- name: Create WordPress .env file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ wordpress_app_dir }}/.env"
+    owner: "{{ wordpress_storage_owner }}"
+    group: "{{ wordpress_storage_group }}"
+    mode: "0600"
+  no_log: true
+
+- name: Deploy WordPress CLI configuration
+  ansible.builtin.template:
+    src: wp-cli.yml.j2
+    dest: "{{ wordpress_app_dir }}/wp-cli.yml"
+    owner: "{{ wordpress_storage_owner }}"
+    group: "{{ wordpress_storage_group }}"
+    mode: "0644"
+
+- name: Deploy WordPress Docker Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ wordpress_app_dir }}/compose.yml"
+    owner: "{{ wordpress_storage_owner }}"
+    group: "{{ wordpress_storage_group }}"
+    mode: "0644"
+
+- name: Deploy WordPress stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ wordpress_app_dir }}"
+    state: present
+  when: not ansible_check_mode

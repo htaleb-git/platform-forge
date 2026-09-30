@@ -1,0 +1,53 @@
+services:
+
+  gitlab:
+    image: "{{ docker_images.gitlab.repository }}:{{ docker_images.gitlab.tag }}"
+    container_name: "{{ gitlab_container_name }}"
+    hostname: "{{ gitlab_hostname }}"
+    restart: unless-stopped
+    
+    shm_size: "{{ gitlab_shm_size }}"
+
+    environment: 
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url '{{ gitlab_external_url }}'
+        gitlab_rails['gitlab_shell_ssh_port'] = {{ gitlab_ssh_port }}
+        gitlab_rails['time_zone'] = '{{ gitlab_timezone }}'
+
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+                
+    ports:
+      - "{{ gitlab_ssh_port }}:22"
+
+    volumes:
+      - "{{ gitlab_config_dir }}:/etc/gitlab"
+      - "{{ gitlab_logs_dir }}:/var/log/gitlab"
+      - "{{ gitlab_data_store_dir }}:/var/opt/gitlab"
+
+    networks:
+      - proxy
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -fsS http://localhost/-/health || exit 1"
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+      
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network={{ gitlab_network_proxy }}"
+      - "traefik.http.routers.gitlab.rule=Host(`{{ gitlab_hostname }}`)"
+      - "traefik.http.routers.gitlab.entrypoints=websecure"
+      - "traefik.http.routers.gitlab.tls=true"
+      - "traefik.http.services.gitlab.loadbalancer.server.port=80"
+
+networks:
+
+  proxy:
+    external: true
+    name: "{{ gitlab_network_proxy }}"
+

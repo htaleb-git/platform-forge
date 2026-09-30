@@ -1,0 +1,13 @@
+[Unit]
+Description=Backup WordPress database and content
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/backup-wordpress.sh
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

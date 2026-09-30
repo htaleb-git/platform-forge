@@ -1,0 +1,11 @@
+---
+maintenance_disk_warning_percent: 80
+maintenance_disk_critical_percent: 90
+
+maintenance_check_docker: true
+maintenance_check_restic: true
+
+maintenance_docker_cleanup_enabled: false
+maintenance_docker_prune_dangling_images: true
+maintenance_docker_builder_cache_enabled: true
+maintenance_docker_builder_cache_age: "720h"

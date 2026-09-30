@@ -1,0 +1,16 @@
+---
+wordpress_enabled: false
+wordpress_app_dir: "{{ platform_apps_root }}/wordpress"
+wordpress_data_dir: "{{ platform_data_root }}/wordpress"
+wordpress_container_name: wordpress
+wordpress_mariadb_container_name: wordpress-mariadb
+wordpress_storage_owner: "{{ platform_admin_user }}"
+wordpress_storage_group: "{{ platform_admin_user }}"
+
+wordpress_image: "{{ docker_images.wordpress.repository }}:{{ docker_images.wordpress.tag }}"
+wordpress_mariadb_image: "{{ docker_images.mariadb.repository }}:{{ docker_images.mariadb.tag }}"
+
+wordpress_db_password: "{{ vault_wordpress_db_password }}"
+wordpress_mariadb_root_password: "{{ vault_wordpress_mariadb_root_password }}"
+
+wordpress_cli_image: "{{ docker_images.wordpress_cli.repository }}:{{ docker_images.wordpress_cli.tag }}"

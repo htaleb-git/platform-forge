@@ -1,0 +1,12 @@
+---
+gitlab_enabled: false
+gitlab_container_name: "gitlab"
+gitlab_app_dir: "{{ platform_apps_root }}/gitlab"
+gitlab_data_dir: "{{ platform_data_root }}/gitlab"
+gitlab_config_dir: "{{ gitlab_data_dir }}/config"
+gitlab_logs_dir: "{{ gitlab_data_dir }}/logs"
+gitlab_data_store_dir: "{{ gitlab_data_dir }}/data"
+gitlab_shm_size: "256m"
+gitlab_timezone: "{{ platform_timezone }}"
+gitlab_storage_owner: "{{ platform_admin_user }}"
+gitlab_storage_group: "{{ platform_admin_user }}"

@@ -1,0 +1,73 @@
+---
+- name: Validate n8n backup publication paths
+  ansible.builtin.assert:
+    that:
+      - backup_n8n_root.startswith(platform_backup_root + '/')
+      - backup_n8n_generations_to_keep | int >= 1
+    fail_msg: "Invalid n8n backup publication configuration."
+
+- name: Create n8n backup publication directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ backup_n8n_owner }}"
+    group: "{{ backup_n8n_group }}"
+    mode: "{{ backup_n8n_dir_mode }}"
+  loop:
+    - "{{ backup_n8n_root }}"
+    - "{{ backup_n8n_generations_dir }}"
+    - "{{ platform_backup_root }}/.staging/n8n"
+
+- name: Deploy n8n backup script
+  ansible.builtin.template:
+    src: backup-n8n.sh.j2
+    dest: /usr/local/sbin/backup-n8n.sh
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Deploy n8n backup systemd service
+  ansible.builtin.template:
+    src: backup-n8n.service.j2
+    dest: /etc/systemd/system/backup-n8n.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Deploy n8n backup systemd timer
+  ansible.builtin.template:
+    src: backup-n8n.timer.j2
+    dest: /etc/systemd/system/backup-n8n.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Enable and start n8n backup timer
+  ansible.builtin.systemd:
+    name: backup-n8n.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: 
+    - backup_n8n_enabled | bool
+    - ansible_check_mode == false
+
+- name: Disable n8n backup timer
+  ansible.builtin.systemd:
+    name: backup-n8n.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when: 
+    - not backup_n8n_enabled | bool
+    - ansible_check_mode == false  
+
+- name: Deploy n8n restore script
+  ansible.builtin.template:
+    src: restore-n8n.sh.j2
+    dest: /usr/local/sbin/restore-n8n.sh
+    owner: root
+    group: root
+    mode: "0750"

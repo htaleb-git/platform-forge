@@ -1,0 +1,48 @@
+# Local secret material
+.vault-password
+.env
+.env.*
+!.env.example
+**/vault.yml
+**/vault_*.yml
+**/vault-*.yml
+*.vault
+*.vault.yml
+
+# Private keys and private certificate containers
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.key
+*.pem
+*.p12
+*.pfx
+*.p7b
+
+# Ansible local artifacts
+*.retry
+.ansible/
+
+# Python and local test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Editor and IDE artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local runtime and audit output
+*.log
+tmp/
+var/
+console/*

@@ -1,0 +1,60 @@
+---
+- name: Validate n8n configuration
+  ansible.builtin.assert:
+    that:
+      - n8n_app_dir is match('^/[^/]+')
+      - n8n_data_dir is match('^/[^/]+')
+      - n8n_hostname | length > 0
+      - n8n_encryption_key | length > 0
+      - n8n_encryption_key != 'CHANGE_ME'
+      - n8n_postgres_password | length > 0
+      - n8n_postgres_password != 'CHANGE_ME'
+    fail_msg: "Invalid n8n paths, hostname, or secret configuration."
+  no_log: true
+
+- name: Create n8n application directory
+  ansible.builtin.file:
+    path: "{{ n8n_app_dir }}"
+    state: directory
+    owner: "{{ n8n_storage_owner }}"
+    group: "{{ n8n_storage_group }}"
+    mode: "0755"
+
+- name: Create n8n application data directory
+  ansible.builtin.file:
+    path: "{{ n8n_data_dir }}/n8n"
+    state: directory
+    owner: "{{ n8n_container_uid }}"
+    group: "{{ n8n_container_gid }}"
+    mode: "0755"
+
+- name: Create n8n PostgreSQL data directory
+  ansible.builtin.file:
+    path: "{{ n8n_data_dir }}/postgres"
+    state: directory
+    owner: "{{ n8n_postgres_uid }}"
+    group: "{{ n8n_postgres_gid }}"
+    mode: "0700"
+
+- name: Create n8n .env file
+  ansible.builtin.template:
+    dest: "{{ n8n_app_dir }}/.env"
+    src: "templates/env.j2"
+    owner: "{{ n8n_storage_owner }}"
+    group: "{{ n8n_storage_group }}"
+    mode: '0600'
+  no_log: true
+
+- name: Deploy n8n Docker Compose file
+  ansible.builtin.template:
+    src: "compose.yml.j2"
+    dest: "{{ n8n_app_dir }}/compose.yml"
+    owner: "{{ n8n_storage_owner }}"
+    group: "{{ n8n_storage_group }}"
+    mode: "0644"  
+
+- name: Deploy n8n stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ n8n_app_dir }}"
+    state: present
+  when: not ansible_check_mode

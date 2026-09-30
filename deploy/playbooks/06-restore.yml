@@ -1,0 +1,228 @@
+---
+- name: Restore platform applications
+  hosts: platform_nodes
+  become: true
+  gather_facts: false
+
+  tasks:
+    # Interim orchestration only. Backup staging, rollback, and restore-source
+    # selection remain explicit technical debt for Phase 6.
+    - name: Check GitLab restore script
+      ansible.builtin.stat:
+        path: /usr/local/sbin/restore-gitlab.sh
+      register: gitlab_restore_script
+      tags: [never, restore-gitlab]
+
+    - name: Validate GitLab restore preconditions
+      ansible.builtin.assert:
+        that:
+          - gitlab_enabled | bool
+          - gitlab_restore_script.stat.exists
+          - gitlab_restore_script.stat.isreg
+          - gitlab_restore_script.stat.executable
+        fail_msg: "GitLab restore is disabled or its restore script is unavailable."
+      tags: [never, restore-gitlab]
+
+    - name: Confirm GitLab restore
+      ansible.builtin.pause:
+        prompt: |
+          WARNING: GitLab restore is destructive.
+          Type RESTORE to continue
+      register: gitlab_restore_confirmation
+      tags: [never, restore-gitlab]
+
+    - name: Confirm GitLab data replacement
+      ansible.builtin.pause:
+        prompt: |
+          FINAL WARNING: current GitLab data will be replaced.
+          Type ERASE-AND-RESTORE to continue
+      register: gitlab_erase_confirmation
+      when: gitlab_restore_confirmation.user_input == "RESTORE"
+      tags: [never, restore-gitlab]
+
+    - name: Validate GitLab restore confirmations
+      ansible.builtin.assert:
+        that:
+          - gitlab_restore_confirmation.user_input == "RESTORE"
+          - gitlab_erase_confirmation.user_input | default('') == "ERASE-AND-RESTORE"
+        fail_msg: "GitLab restore cancelled."
+      tags: [never, restore-gitlab]
+
+    - name: Restore GitLab from current staged backup
+      ansible.builtin.command:
+        argv:
+          - /usr/local/sbin/restore-gitlab.sh
+        stdin: |
+          RESTORE
+          ERASE-AND-RESTORE
+      register: gitlab_restore_result
+      changed_when: true
+      tags: [never, restore-gitlab]
+
+    - name: Display GitLab restore result
+      ansible.builtin.debug:
+        var: gitlab_restore_result.stdout_lines
+      tags: [never, restore-gitlab]
+
+    - name: Check Nextcloud restore script
+      ansible.builtin.stat:
+        path: /usr/local/sbin/restore-nextcloud.sh
+      register: nextcloud_restore_script
+      tags: [never, restore-nextcloud]
+
+    - name: Validate Nextcloud restore preconditions
+      ansible.builtin.assert:
+        that:
+          - nextcloud_enabled | bool
+          - nextcloud_restore_script.stat.exists
+          - nextcloud_restore_script.stat.isreg
+          - nextcloud_restore_script.stat.executable
+        fail_msg: "Nextcloud restore is disabled or its restore script is unavailable."
+      tags: [never, restore-nextcloud]
+
+    - name: Confirm Nextcloud restore
+      ansible.builtin.pause:
+        prompt: |
+          WARNING: Nextcloud database and configuration will be replaced.
+          User files are not restored by this interim mechanism.
+          Type RESTORE to continue
+      register: nextcloud_restore_confirmation
+      tags: [never, restore-nextcloud]
+
+    - name: Confirm Nextcloud data replacement
+      ansible.builtin.pause:
+        prompt: |
+          FINAL WARNING: current Nextcloud database and configuration will be replaced.
+          Type ERASE-AND-RESTORE to continue
+      register: nextcloud_erase_confirmation
+      when: nextcloud_restore_confirmation.user_input == "RESTORE"
+      tags: [never, restore-nextcloud]
+
+    - name: Validate Nextcloud restore confirmations
+      ansible.builtin.assert:
+        that:
+          - nextcloud_restore_confirmation.user_input == "RESTORE"
+          - nextcloud_erase_confirmation.user_input | default('') == "ERASE-AND-RESTORE"
+        fail_msg: "Nextcloud restore cancelled."
+      tags: [never, restore-nextcloud]
+
+    - name: Restore Nextcloud from current staged backup
+      ansible.builtin.command:
+        argv:
+          - /usr/local/sbin/restore-nextcloud.sh
+      register: nextcloud_restore_result
+      changed_when: true
+      tags: [never, restore-nextcloud]
+
+    - name: Display Nextcloud restore result
+      ansible.builtin.debug:
+        var: nextcloud_restore_result.stdout_lines
+      tags: [never, restore-nextcloud]
+
+    - name: Check n8n restore script
+      ansible.builtin.stat:
+        path: /usr/local/sbin/restore-n8n.sh
+      register: n8n_restore_script
+      tags: [never, restore-n8n]
+
+    - name: Validate n8n restore preconditions
+      ansible.builtin.assert:
+        that:
+          - n8n_enabled | bool
+          - n8n_restore_script.stat.exists
+          - n8n_restore_script.stat.isreg
+          - n8n_restore_script.stat.executable
+        fail_msg: "n8n restore is disabled or its restore script is unavailable."
+      tags: [never, restore-n8n]
+
+    - name: Confirm n8n restore
+      ansible.builtin.pause:
+        prompt: |
+          WARNING: the current n8n PostgreSQL database will be replaced.
+          Type RESTORE to continue
+      register: n8n_restore_confirmation
+      tags: [never, restore-n8n]
+
+    - name: Confirm n8n data replacement
+      ansible.builtin.pause:
+        prompt: |
+          FINAL WARNING: current n8n data will be replaced.
+          Type ERASE-AND-RESTORE to continue
+      register: n8n_erase_confirmation
+      when: n8n_restore_confirmation.user_input == "RESTORE"
+      tags: [never, restore-n8n]
+
+    - name: Validate n8n restore confirmations
+      ansible.builtin.assert:
+        that:
+          - n8n_restore_confirmation.user_input == "RESTORE"
+          - n8n_erase_confirmation.user_input | default('') == "ERASE-AND-RESTORE"
+        fail_msg: "n8n restore cancelled."
+      tags: [never, restore-n8n]
+
+    - name: Restore n8n from current staged backup
+      ansible.builtin.command:
+        argv:
+          - /usr/local/sbin/restore-n8n.sh
+      register: n8n_restore_result
+      changed_when: true
+      tags: [never, restore-n8n]
+
+    - name: Display n8n restore result
+      ansible.builtin.debug:
+        var: n8n_restore_result.stdout_lines
+      tags: [never, restore-n8n]
+
+    - name: Check WordPress restore script
+      ansible.builtin.stat:
+        path: /usr/local/sbin/restore-wordpress.sh
+      register: wordpress_restore_script
+      tags: [never, restore-wordpress]
+
+    - name: Validate WordPress restore preconditions
+      ansible.builtin.assert:
+        that:
+          - wordpress_enabled | bool
+          - wordpress_restore_script.stat.exists
+          - wordpress_restore_script.stat.isreg
+          - wordpress_restore_script.stat.executable
+        fail_msg: "WordPress restore is disabled or its restore script is unavailable."
+      tags: [never, restore-wordpress]
+
+    - name: Confirm WordPress restore
+      ansible.builtin.pause:
+        prompt: |
+          WARNING: the WordPress database and wp-content will be replaced.
+          Type RESTORE to continue
+      register: wordpress_restore_confirmation
+      tags: [never, restore-wordpress]
+
+    - name: Confirm WordPress data replacement
+      ansible.builtin.pause:
+        prompt: |
+          FINAL WARNING: current WordPress data will be replaced.
+          Type ERASE-AND-RESTORE to continue
+      register: wordpress_erase_confirmation
+      when: wordpress_restore_confirmation.user_input == "RESTORE"
+      tags: [never, restore-wordpress]
+
+    - name: Validate WordPress restore confirmations
+      ansible.builtin.assert:
+        that:
+          - wordpress_restore_confirmation.user_input == "RESTORE"
+          - wordpress_erase_confirmation.user_input | default('') == "ERASE-AND-RESTORE"
+        fail_msg: "WordPress restore cancelled."
+      tags: [never, restore-wordpress]
+
+    - name: Restore WordPress from current staged backup
+      ansible.builtin.command:
+        argv:
+          - /usr/local/sbin/restore-wordpress.sh
+      register: wordpress_restore_result
+      changed_when: true
+      tags: [never, restore-wordpress]
+
+    - name: Display WordPress restore result
+      ansible.builtin.debug:
+        var: wordpress_restore_result.stdout_lines
+      tags: [never, restore-wordpress]

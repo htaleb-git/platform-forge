@@ -1,0 +1,41 @@
+---
+- name: Configure platform node systems
+  hosts: platform_nodes
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: system_update
+      vars:
+        system_update_upgrade_type: dist
+        system_update_autoremove: true
+        system_update_autoremove_purge: true
+        system_update_reboot_enabled: false
+      tags:
+        - system
+        - updates
+
+    - role: common_packages
+      tags:
+        - system
+        - packages
+
+    - role: system_swap
+      tags:
+        - system
+        - swap
+
+  post_tasks:
+    - name: Reboot server when required
+      ansible.builtin.reboot:
+        msg: "Reboot initiated by Ansible after system configuration"
+        reboot_timeout: "{{ system_update_reboot_timeout | int }}"
+        pre_reboot_delay: 5
+        post_reboot_delay: 10
+        test_command: uptime
+      when:
+        - system_update_reboot_enabled | bool
+        - system_update_reboot_required.stat.exists
+      tags:
+        - system
+        - updates

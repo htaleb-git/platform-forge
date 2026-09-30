@@ -1,0 +1,103 @@
+---
+- name: Validate Traefik configuration
+  ansible.builtin.assert:
+    that:
+      - traefik_app_dir is match('^/[^/]+')
+      - traefik_tls_mode in ['acme', 'internal']
+      - traefik_tls_mode != 'internal' or vault_traefik_tls_private_key | default('') | length > 0
+      - traefik_tls_mode != 'internal' or vault_traefik_tls_private_key | default('') != 'CHANGE_ME'
+      - traefik_tls_mode != 'internal' or vault_traefik_tls_certificate | default('') | length > 0
+      - traefik_tls_mode != 'internal' or vault_traefik_tls_certificate | default('') != 'CHANGE_ME'
+    fail_msg: "Invalid Traefik path, TLS mode, or internal TLS secret configuration."
+  no_log: true
+
+- name: Create deployment directories for traefik
+  file:
+    path: "{{ traefik_app_dir }}"
+    state: directory
+    owner: "{{ traefik_storage_owner }}"
+    group: "{{ traefik_storage_group }}"
+    mode: '0755'
+
+- name: Create dynamic configuration directory for traefik
+  file:
+    path: "{{ traefik_dynamic_dir }}"
+    state: directory
+    owner: "{{ traefik_storage_owner }}"
+    group: "{{ traefik_storage_group }}"
+    mode: '0755'
+
+# ------------------------------------------------------------
+# Internal TLS
+# ------------------------------------------------------------
+
+- name: Create tls certs directory for traefik
+  file:
+    path: "{{ traefik_tls_cert_dir }}"
+    state: directory
+    owner: "{{ traefik_storage_owner }}"
+    group: "{{ traefik_storage_group }}"
+    mode: '0755'
+  when: traefik_tls_mode == "internal"
+
+- name: Deploy private key from vault to traefik certs directory
+  ansible.builtin.copy:
+    content: "{{ vault_traefik_tls_private_key }}"
+    dest: "{{ traefik_tls_cert_dir }}/{{  traefik_tls_private_key_name }}"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  when: 
+    - traefik_tls_mode == "internal"
+    - not ansible_check_mode
+
+- name: Deploy certificate from vault to traefik certs directory
+  ansible.builtin.copy:
+    content: "{{ vault_traefik_tls_certificate }}"
+    dest: "{{ traefik_tls_cert_dir }}/{{ traefik_tls_cert_name }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when: 
+    - traefik_tls_mode == "internal"
+    - not ansible_check_mode  
+
+- name: Generate tls.yml file for traefik
+  template:
+    src: "templates/tls.yml.j2"
+    dest: "{{ traefik_dynamic_dir }}/tls.yml"
+    owner: "{{ traefik_storage_owner }}"
+    group: "{{ traefik_storage_group }}"
+    mode: '0644'
+  when: 
+    - traefik_tls_mode == "internal"
+    - not ansible_check_mode
+
+# ------------------------------------------------------------
+# ACME / Let's Encrypt
+# ------------------------------------------------------------
+
+- name: Create ACME storage file
+  ansible.builtin.file:
+    path: "{{ traefik_acme_storage }}"
+    state: touch
+    owner: "{{ traefik_storage_owner }}"
+    group: "{{ traefik_storage_group }}"
+    mode: "0600"
+    modification_time: preserve
+    access_time: preserve
+  when: traefik_tls_mode == "acme"
+  
+- name: Generate compose file for traefik
+  template:
+    src: "templates/compose.yml.j2"
+    dest: "{{ traefik_app_dir }}/compose.yml"
+    owner: "{{ traefik_storage_owner }}"
+    group: "{{ traefik_storage_group }}"
+    mode: '0644'
+
+- name: Deploy traefik stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ traefik_app_dir }}"
+    state: present

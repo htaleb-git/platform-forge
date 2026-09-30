@@ -1,0 +1,10 @@
+[Unit]
+Description=Restic repository maintenance
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/maintenance-restic.sh
+User=root
+Group=root

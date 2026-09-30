@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_DIR="{{ backup_wordpress_dir }}"
+RESTORE_DIR="{{ backup_wordpress_restore_dir }}"
+
+DUMP_FILE="${BACKUP_DIR}/{{ backup_wordpress_dump_name }}"
+CONTENT_FILE="${BACKUP_DIR}/{{ backup_wordpress_content_name }}"
+
+WORDPRESS_DIR="{{ wordpress_data_dir }}/html"
+CONTENT_DIR="${WORDPRESS_DIR}/wp-content"
+
+DB_CONTAINER="{{ backup_wordpress_mariadb_container_name }}"
+WP_CONTAINER="{{ backup_wordpress_container_name }}"
+
+echo "=== WordPress restore ==="
+
+if [[ ! -s "${DUMP_FILE}" ]]; then
+  echo "ERROR: WordPress database backup missing or empty: ${DUMP_FILE}" >&2
+  exit 1
+fi
+
+if [[ ! -s "${CONTENT_FILE}" ]]; then
+  echo "ERROR: WordPress content backup missing or empty: ${CONTENT_FILE}" >&2
+  exit 1
+fi
+
+if ! docker inspect "${DB_CONTAINER}" >/dev/null 2>&1; then
+  echo "ERROR: MariaDB container not found: ${DB_CONTAINER}" >&2
+  exit 1
+fi
+
+if ! docker inspect "${WP_CONTAINER}" >/dev/null 2>&1; then
+  echo "ERROR: WordPress container not found: ${WP_CONTAINER}" >&2
+  exit 1
+fi
+
+echo "Checking WordPress content archive"
+
+tar -tzf "${CONTENT_FILE}" >/dev/null
+
+echo "Preparing restore directory"
+
+rm -rf "${RESTORE_DIR}"
+mkdir -p "${RESTORE_DIR}"
+
+echo "Extracting wp-content backup"
+
+tar -xzf "${CONTENT_FILE}" -C "${RESTORE_DIR}"
+
+if [[ ! -d "${RESTORE_DIR}/wp-content" ]]; then
+  echo "ERROR: wp-content directory not found in archive" >&2
+  exit 1
+fi
+
+echo "Stopping WordPress container"
+
+docker stop "${WP_CONTAINER}" >/dev/null
+
+cleanup() {
+  local exit_code=$?
+
+  echo "Starting WordPress container"
+  docker start "${WP_CONTAINER}" >/dev/null || true
+
+  rm -rf "${RESTORE_DIR}"
+
+  exit "${exit_code}"
+}
+
+trap cleanup EXIT
+
+echo "Recreating WordPress database"
+
+docker exec "${DB_CONTAINER}" \
+  mariadb \
+  -u root \
+  "-p{{ vault_wordpress_mariadb_root_password }}" \
+  -e "
+    DROP DATABASE IF EXISTS \`{{ wordpress_db_name }}\`;
+    CREATE DATABASE \`{{ wordpress_db_name }}\`
+      CHARACTER SET utf8mb4
+      COLLATE utf8mb4_unicode_ci;
+    GRANT ALL PRIVILEGES
+      ON \`{{ wordpress_db_name }}\`.*
+      TO '{{ wordpress_db_user }}'@'%';
+    FLUSH PRIVILEGES;
+  "
+
+echo "Restoring WordPress database"
+
+docker exec -i "${DB_CONTAINER}" \
+  mariadb \
+  -u root \
+  "-p{{ vault_wordpress_mariadb_root_password }}" \
+  "{{ wordpress_db_name }}" \
+  < "${DUMP_FILE}"
+
+echo "Checking restored WordPress database"
+
+TABLE_COUNT="$(
+  docker exec "${DB_CONTAINER}" \
+    mariadb \
+    -u root \
+    "-p{{ vault_wordpress_mariadb_root_password }}" \
+    -N \
+    -e "
+      SELECT COUNT(*)
+      FROM information_schema.tables
+      WHERE table_schema='{{ wordpress_db_name }}';
+    "
+)"
+
+if ! [[ "${TABLE_COUNT}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: restored WordPress database contains no tables" >&2
+  exit 1
+fi
+
+echo "Restored database contains ${TABLE_COUNT} tables"
+
+echo "Restoring wp-content"
+
+rm -rf "${CONTENT_DIR}"
+
+cp -a \
+  "${RESTORE_DIR}/wp-content" \
+  "${WORDPRESS_DIR}/"
+
+chown -R \
+  "{{ wordpress_container_uid }}:{{ wordpress_container_gid }}" \
+  "${CONTENT_DIR}"
+
+echo "Checking restored wp-content"
+
+if [[ ! -d "${CONTENT_DIR}" ]]; then
+  echo "ERROR: restored wp-content directory does not exist" >&2
+  exit 1
+fi
+
+echo "WordPress restore successfully completed"

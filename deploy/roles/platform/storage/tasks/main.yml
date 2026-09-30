@@ -1,0 +1,28 @@
+---
+- name: Validate platform storage paths
+  ansible.builtin.assert:
+    that:
+      - platform_root.startswith('/')
+      - platform_root != '/'
+      - not platform_root.endswith('/')
+      - "'..' not in platform_root.split('/')"
+      - platform_apps_root.startswith(platform_root + '/')
+      - platform_data_root.startswith(platform_root + '/')
+      - platform_backup_root.startswith(platform_root + '/')
+      - "'..' not in platform_apps_root.split('/')"
+      - "'..' not in platform_data_root.split('/')"
+      - "'..' not in platform_backup_root.split('/')"
+      - platform_apps_root != platform_data_root
+      - platform_apps_root != platform_backup_root
+      - platform_data_root != platform_backup_root
+    fail_msg: "Platform storage paths must be absolute, non-root, and distinct."
+
+- name: Create storage directories
+  ansible.builtin.file:
+    path: "{{ storage_root }}/{{ item }}"
+    state: directory
+    owner: "{{ storage_owner }}"
+    group: "{{ storage_group }}"
+    mode: '0755'
+  loop: "{{ storage_directories }}"
+  when: not ansible_check_mode

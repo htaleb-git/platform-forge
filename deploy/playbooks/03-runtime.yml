@@ -1,0 +1,34 @@
+---
+- name: Configure the platform runtime
+  hosts: platform_nodes
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: container_runtime
+      tags:
+        - runtime
+        - docker
+        - container-runtime
+
+    - role: docker_users
+      tags:
+        - runtime
+        - docker
+        - docker-users
+
+    - role: docker_networks
+      tags:
+        - runtime
+        - docker
+        - docker-networks
+
+    - role: storage
+      tags:
+        - runtime
+        - storage
+
+    - role: traefik
+      tags:
+        - runtime
+        - traefik

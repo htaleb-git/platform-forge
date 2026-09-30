@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Nextcloud backup
+
+[Timer]
+OnCalendar={{ backup_nextcloud_schedule }}
+Persistent=true
+RandomizedDelaySec={{ backup_nextcloud_randomized_delay }}
+Unit=backup-nextcloud.service
+
+[Install]
+WantedBy=timers.target

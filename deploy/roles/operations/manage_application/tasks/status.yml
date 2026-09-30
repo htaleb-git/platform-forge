@@ -1,0 +1,11 @@
+---
+- name: Get {{ application_name }} status
+  ansible.builtin.command:
+    cmd: docker compose ps
+    chdir: "{{ application_compose_dir }}"
+  register: application_status_result
+  changed_when: false
+
+- name: Display {{ application_name }} status
+  ansible.builtin.debug:
+    var: application_status_result.stdout_lines

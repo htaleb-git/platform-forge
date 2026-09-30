@@ -1,0 +1,30 @@
+---
+- name: Validate application operation parameters
+  ansible.builtin.assert:
+    that:
+      - application_name | length > 0
+      - application_compose_dir | length > 0
+      - application_operation in application_allowed_operations
+    fail_msg: >-
+      Invalid application operation.
+      application_name={{ application_name }},
+      application_compose_dir={{ application_compose_dir }},
+      application_operation={{ application_operation }}.
+
+- name: Check application compose file
+  ansible.builtin.stat:
+    path: "{{ application_compose_dir }}/compose.yml"
+  register: application_compose_file
+
+- name: Validate application compose file
+  ansible.builtin.assert:
+    that:
+      - application_compose_file.stat.exists
+      - application_compose_file.stat.isreg
+    fail_msg: >-
+      Docker Compose file not found:
+      {{ application_compose_dir }}/compose.yml
+
+- name: Execute application operation
+  ansible.builtin.include_tasks:
+    file: "{{ application_operation }}.yml"

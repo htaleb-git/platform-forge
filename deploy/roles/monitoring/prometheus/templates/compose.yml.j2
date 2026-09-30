@@ -1,0 +1,25 @@
+services:
+  prometheus:
+    image: "{{ prometheus_image }}"
+    container_name: "{{ prometheus_container_name }}"
+
+    restart: "{{ prometheus_restart_policy }}"
+
+    volumes:
+      - "{{ prometheus_config_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      - "{{ prometheus_data_dir }}:/prometheus"
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time={{ prometheus_retention_time }}"
+    
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    external: true

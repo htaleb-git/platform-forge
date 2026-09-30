@@ -1,0 +1,64 @@
+---
+- name: Manage system swap
+  when: system_swap_enabled | bool
+  block:
+
+    - name: Check swap file
+      ansible.builtin.stat:
+        path: "{{ system_swap_file }}"
+      register: system_swap_file_stat
+
+    - name: Create swap file
+      ansible.builtin.command:
+        cmd: "fallocate -l {{ system_swap_size }} {{ system_swap_file }}"
+      when: not system_swap_file_stat.stat.exists
+      changed_when: true
+
+    - name: Set swap file permissions
+      ansible.builtin.file:
+        path: "{{ system_swap_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      when: not ansible_check_mode
+    
+    - name: Initialize swap file
+      ansible.builtin.command:
+        cmd: "mkswap {{ system_swap_file }}"
+      when: not system_swap_file_stat.stat.exists
+      changed_when: true
+
+    - name: Get active swap devices
+      ansible.builtin.command:
+        cmd: swapon --show=NAME --noheadings
+      register: system_swap_active
+      changed_when: false
+
+    - name: Enable swap
+      ansible.builtin.command:
+        cmd: "swapon {{ system_swap_file }}"
+      when: system_swap_file not in system_swap_active.stdout_lines
+      changed_when: true
+
+    - name: Persist swap in fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: "^{{ system_swap_file | regex_escape }}\\s"
+        line: "{{ system_swap_file }} none swap sw 0 0"
+        state: present
+
+    - name: Configure swappiness
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-swappiness.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          vm.swappiness={{ system_swap_swappiness }}
+      register: system_swap_sysctl
+
+    - name: Apply swappiness
+      ansible.builtin.command:
+        cmd: "sysctl -w vm.swappiness={{ system_swap_swappiness }}"
+      when: system_swap_sysctl.changed
+      changed_when: true

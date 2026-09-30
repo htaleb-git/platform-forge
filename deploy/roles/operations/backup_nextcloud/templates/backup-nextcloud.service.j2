@@ -1,0 +1,13 @@
+[Unit]
+Description=Backup Nextcloud application data
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/backup-nextcloud.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,98 @@
+services:
+
+  postgres:
+    image: "{{ n8n_postgres_image }}"
+    container_name: "{{ n8n_postgres_container_name }}"
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    volumes:
+      - "{{ n8n_data_dir }}/postgres:/var/lib/postgresql/data"
+
+    networks:
+      - backend
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  n8n:
+    image: "{{ n8n_image }}"
+    container_name: "{{ n8n_container_name }}"
+    restart: unless-stopped
+
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+
+      N8N_HOST: "{{ n8n_hostname }}"
+      N8N_PROTOCOL: "https"
+      N8N_WEBHOOK_URL: "{{ n8n_protocol }}://{{ n8n_hostname }}/"
+      N8N_PROXY_HOPS: "1"
+
+      N8N_UNVERIFIED_PACKAGES_ENABLED: "false"
+      N8N_RUNNERS_TASK_TIMEOUT: "300"
+      N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES: "268435456"
+      N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES: "1000"
+
+      NODES_EXCLUDE: '{{ n8n_nodes_exclude | to_json }}'
+      
+    volumes:
+      - "{{ n8n_data_dir }}/n8n:/home/node/.n8n"
+{% for volume in n8n_extra_volumes %}
+      - "{{ volume }}"
+{% endfor %}
+    
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      
+      - "traefik.http.routers.n8n.rule=Host(`{{ n8n_hostname }}`)"
+      - "traefik.http.routers.n8n.entrypoints=websecure"
+      - "traefik.http.routers.n8n.tls=true"
+
+{% if traefik_tls_mode == "acme" %}
+      - "traefik.http.routers.n8n.tls.certresolver={{ traefik_acme_resolver }}"
+{% endif %}
+
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+  
+    networks:
+      - proxy
+      - backend
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:5678/healthz >/dev/null || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+
+  proxy:
+    external: true
+    name: "{{ n8n_network_proxy }}"
+
+  backend:
+    name: "{{ n8n_network_backend }}"
+

@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_ROOT="{{ backup_n8n_root }}"
+GENERATIONS_DIR="{{ backup_n8n_generations_dir }}"
+STAGING_PARENT="{{ platform_backup_root }}/.staging/n8n"
+GENERATION_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+STAGING_DIR="${STAGING_PARENT}/${GENERATION_ID}"
+GENERATION_DIR="${GENERATIONS_DIR}/${GENERATION_ID}"
+DUMP_FILE="${STAGING_DIR}/{{ backup_n8n_dump_name }}"
+KEEP_GENERATIONS={{ backup_n8n_generations_to_keep | int }}
+
+METRICS_DIR="{{ backup_n8n_metrics_dir }}"
+METRICS_FILE="${METRICS_DIR}/backup_n8n.prom"
+METRICS_TMP="${METRICS_FILE}.tmp.$$"
+START_TS="$(date +%s)"
+LAST_SUCCESS_TS=0
+
+POSTGRES_CONTAINER="{{ n8n_postgres_container_name }}"
+POSTGRES_USER="{{ n8n_postgres_user }}"
+POSTGRES_DB="{{ n8n_postgres_db }}"
+
+if [[ -f "${METRICS_FILE}" ]]; then
+  LAST_SUCCESS_TS="$(awk '/^platform_forge_backup_last_success_timestamp\{backup="n8n"\}/ {print $2}' "${METRICS_FILE}" | tail -1)"
+  LAST_SUCCESS_TS="${LAST_SUCCESS_TS:-0}"
+fi
+
+write_metrics() {
+  local exit_code="$1" end_ts status last_success
+  set +e
+  [[ -d "${METRICS_DIR}" ]] || return 0
+  end_ts="$(date +%s)"; status=0; last_success="${LAST_SUCCESS_TS}"
+  if [[ "${exit_code}" -eq 0 ]]; then status=1; last_success="${end_ts}"; fi
+  cat > "${METRICS_TMP}" <<EOF
+# HELP platform_forge_backup_last_status Last application artifact backup status (1=success, 0=failure)
+# TYPE platform_forge_backup_last_status gauge
+platform_forge_backup_last_status{backup="n8n"} ${status}
+# HELP platform_forge_backup_last_run_timestamp Unix timestamp of the last application backup attempt
+# TYPE platform_forge_backup_last_run_timestamp gauge
+platform_forge_backup_last_run_timestamp{backup="n8n"} ${end_ts}
+# HELP platform_forge_backup_last_success_timestamp Unix timestamp of the last successful application backup
+# TYPE platform_forge_backup_last_success_timestamp gauge
+platform_forge_backup_last_success_timestamp{backup="n8n"} ${last_success}
+# HELP platform_forge_backup_last_duration_seconds Duration of the last application backup attempt
+# TYPE platform_forge_backup_last_duration_seconds gauge
+platform_forge_backup_last_duration_seconds{backup="n8n"} $((end_ts - START_TS))
+EOF
+  mv -f "${METRICS_TMP}" "${METRICS_FILE}"
+}
+
+cleanup() {
+  local exit_code=$?
+  rm -rf -- "${STAGING_DIR}"
+  write_metrics "${exit_code}"
+  exit "${exit_code}"
+}
+trap cleanup EXIT
+
+exec 9>/run/lock/platform-forge-backup-artifacts.lock
+flock -n 9 || { echo "ERROR: another application artifact backup is running" >&2; exit 1; }
+
+mkdir -p "${STAGING_DIR}"
+
+waited=0
+while ! docker exec "${POSTGRES_CONTAINER}" pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" >/dev/null 2>&1; do
+  if (( waited >= 300 )); then
+    echo "ERROR: ${POSTGRES_CONTAINER} not ready after 300s" >&2
+    exit 1
+  fi
+  sleep 10
+  waited=$((waited + 10))
+done
+
+docker exec "${POSTGRES_CONTAINER}" \
+  pg_dump -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -Fc > "${DUMP_FILE}"
+
+[[ -s "${DUMP_FILE}" ]] || { echo "ERROR: generated n8n dump is empty" >&2; exit 1; }
+docker exec -i "${POSTGRES_CONTAINER}" pg_restore -l < "${DUMP_FILE}" >/dev/null
+chown "{{ backup_n8n_owner }}:{{ backup_n8n_group }}" "${DUMP_FILE}"
+chmod "{{ backup_n8n_file_mode }}" "${DUMP_FILE}"
+
+mv "${STAGING_DIR}" "${GENERATION_DIR}"
+ln -s "generations/${GENERATION_ID}" "${BACKUP_ROOT}/.current.$$"
+mv -Tf "${BACKUP_ROOT}/.current.$$" "${BACKUP_ROOT}/current"
+
+find "${GENERATIONS_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+  | sort -r | tail -n "+$((KEEP_GENERATIONS + 1))" \
+  | while IFS= read -r old_generation; do
+      rm -rf -- "${GENERATIONS_DIR}/${old_generation}"
+    done
+
+echo "n8n backup generation published: ${GENERATION_ID}"

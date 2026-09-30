@@ -1,0 +1,103 @@
+services:
+
+  mariadb:
+    image: "{{ wordpress_mariadb_image }}"
+    container_name: "{{ wordpress_mariadb_container_name }}"
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      MARIADB_DATABASE: ${MARIADB_DATABASE}
+      MARIADB_USER: ${MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+
+    volumes:
+      - "{{ wordpress_data_dir }}/mariadb:/var/lib/mysql"
+
+    networks:
+      - backend
+
+    healthcheck:
+      test:
+        - CMD
+        - healthcheck.sh
+        - --connect
+        - --innodb_initialized
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  wordpress-cli:
+    image: "{{ wordpress_cli_image }}"
+    user: "{{ wordpress_container_uid }}:{{ wordpress_container_gid }}"
+
+    profiles:
+      - tools
+
+    environment:
+      WORDPRESS_DB_HOST: mariadb:3306
+      WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}
+      WORDPRESS_DB_USER: ${WORDPRESS_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+      WP_CLI_CONFIG_PATH: /wp-cli.yml
+
+    volumes:
+      - "{{ wordpress_data_dir }}/html:/var/www/html"
+      - "{{ wordpress_app_dir }}/wp-cli.yml:/wp-cli.yml:ro"
+
+    networks:
+      - backend
+
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  wordpress:
+    image: "{{ wordpress_image }}"
+    container_name: "{{ wordpress_container_name }}"
+    restart: unless-stopped
+
+    environment:
+      WORDPRESS_DB_HOST: mariadb:3306
+      WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}
+      WORDPRESS_DB_USER: ${WORDPRESS_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+
+    volumes:
+      - "{{ wordpress_data_dir }}/html:/var/www/html"
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network={{ wordpress_network_proxy }}"
+
+      - "traefik.http.routers.wordpress.rule=Host(`{{ wordpress_hostname }}`)"
+      - "traefik.http.routers.wordpress.entrypoints=websecure"
+      - "traefik.http.routers.wordpress.tls=true"
+
+{% if traefik_tls_mode == "acme" %}
+      - "traefik.http.routers.wordpress.tls.certresolver={{ traefik_acme_resolver }}"
+{% endif %}
+
+      - "traefik.http.services.wordpress.loadbalancer.server.port=80"
+
+    networks:
+      - proxy
+      - backend
+
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+
+networks:
+
+  proxy:
+    external: true
+    name: "{{ wordpress_network_proxy }}"
+
+  backend:
+    name: "{{ wordpress_network_backend }}"

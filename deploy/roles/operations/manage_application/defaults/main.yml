@@ -1,0 +1,10 @@
+---
+application_name: ""
+application_compose_dir: ""
+application_operation: "status"
+
+application_allowed_operations:
+  - start
+  - stop
+  - restart
+  - status

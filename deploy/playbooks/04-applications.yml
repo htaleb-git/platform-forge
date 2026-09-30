@@ -1,0 +1,70 @@
+---
+- name: Deploy and operate platform applications
+  hosts: platform_nodes
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: gitlab
+      when: gitlab_enabled | bool
+      tags:
+        - applications
+        - gitlab
+
+    - role: nextcloud
+      when: nextcloud_enabled | bool
+      tags:
+        - applications
+        - nextcloud
+
+    - role: n8n
+      when: n8n_enabled | bool
+      tags:
+        - applications
+        - n8n
+
+    - role: wordpress
+      when: wordpress_enabled | bool
+      tags:
+        - applications
+        - wordpress
+
+  tasks:
+    - name: Operate GitLab
+      ansible.builtin.import_role:
+        name: manage_application
+      vars:
+        application_name: gitlab
+        application_compose_dir: "{{ gitlab_app_dir }}"
+        application_operation: "{{ operation }}"
+      when: gitlab_enabled | bool
+      tags:
+        - never
+        - operations
+        - operate-gitlab
+
+    - name: Operate Nextcloud
+      ansible.builtin.import_role:
+        name: manage_application
+      vars:
+        application_name: nextcloud
+        application_compose_dir: "{{ nextcloud_app_dir }}"
+        application_operation: "{{ operation }}"
+      when: nextcloud_enabled | bool
+      tags:
+        - never
+        - operations
+        - operate-nextcloud
+
+    - name: Operate n8n
+      ansible.builtin.import_role:
+        name: manage_application
+      vars:
+        application_name: n8n
+        application_compose_dir: "{{ n8n_app_dir }}"
+        application_operation: "{{ operation }}"
+      when: n8n_enabled | bool
+      tags:
+        - never
+        - operations
+        - operate-n8n

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily WordPress backup
+
+[Timer]
+OnCalendar={{ backup_wordpress_schedule }}
+Persistent=true
+RandomizedDelaySec={{ backup_wordpress_randomized_delay }}
+Unit=backup-wordpress.service
+
+[Install]
+WantedBy=timers.target

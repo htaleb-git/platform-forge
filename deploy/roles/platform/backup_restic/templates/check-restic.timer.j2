@@ -1,0 +1,11 @@
+[Unit]
+Description=Scheduled Restic repository check
+
+[Timer]
+OnCalendar={{ restic_check_schedule }}
+Persistent=true
+RandomizedDelaySec={{ restic_check_randomized_delay }}
+Unit=check-restic.service
+
+[Install]
+WantedBy=timers.target

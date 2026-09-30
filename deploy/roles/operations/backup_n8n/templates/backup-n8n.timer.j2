@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily n8n backup
+
+[Timer]
+OnCalendar={{ backup_n8n_schedule }}
+Persistent=true
+RandomizedDelaySec={{ backup_n8n_randomized_delay }}
+Unit=backup-n8n.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,5 @@
+RESTIC_REPOSITORY={{ restic_repository | quote }}
+RESTIC_PASSWORD_FILE={{ restic_password_file | quote }}
+{% for key, value in restic_environment | dictsort %}
+{{ key }}={{ value | string | quote }}
+{% endfor %}

@@ -1,0 +1,64 @@
+---
+- name: Validate supported architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == "Ubuntu"    
+      - ansible_facts.architecture in docker_architecture_map
+    fail_msg: >-
+      Unsupported platform:
+      {{ ansible_facts.distribution }}
+      {{ ansible_facts.architecture }}.
+
+- name: Create /etc/apt/keyrings directory
+  ansible.builtin.file:
+    path: "{{ docker_apt_keyring_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download Docker GPG key
+  ansible.builtin.get_url:
+    url: "{{ docker_apt_key_url }}"
+    dest: "{{ docker_apt_key_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Generate Docker APT repository file
+  ansible.builtin.template:
+    src: docker.list.j2
+    dest: "{{ docker_apt_repository_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install container runtime packages
+  ansible.builtin.apt:
+    name: "{{ container_runtime_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: not ansible_check_mode
+
+- name: Ensure Docker configuration directory exists
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"    
+
+- name: Configure Docker daemon
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "/usr/bin/dockerd --validate --config-file=%s"    
+  notify:
+    - Restart docker service
+
+- name: Apply container runtime handlers before Docker-dependent roles
+  ansible.builtin.meta: flush_handlers    

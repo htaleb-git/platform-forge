@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONTAINER="{{ backup_nextcloud_container_name }}"
+BACKUP_ROOT="{{ backup_nextcloud_root }}"
+GENERATIONS_DIR="{{ backup_nextcloud_generations_dir }}"
+STAGING_PARENT="{{ platform_backup_root }}/.staging/nextcloud"
+GENERATION_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+STAGING_DIR="${STAGING_PARENT}/${GENERATION_ID}"
+GENERATION_DIR="${GENERATIONS_DIR}/${GENERATION_ID}"
+DB_FILE="${STAGING_DIR}/{{ backup_nextcloud_db_name }}"
+CONFIG_FILE="${STAGING_DIR}/{{ backup_nextcloud_config_name }}"
+SOURCE_DB="{{ backup_nextcloud_data_dir }}/owncloud.db"
+SOURCE_CONFIG="{{ backup_nextcloud_config_file }}"
+KEEP_GENERATIONS={{ backup_nextcloud_generations_to_keep | int }}
+
+METRICS_DIR="{{ backup_nextcloud_metrics_dir }}"
+METRICS_FILE="${METRICS_DIR}/backup_nextcloud.prom"
+METRICS_TMP="${METRICS_FILE}.tmp.$$"
+START_TS="$(date +%s)"
+LAST_SUCCESS_TS=0
+MAINTENANCE_ENABLED=0
+
+if [[ -f "${METRICS_FILE}" ]]; then
+  LAST_SUCCESS_TS="$(awk '/^platform_forge_backup_last_success_timestamp\{backup="nextcloud"\}/ {print $2}' "${METRICS_FILE}" | tail -1)"
+  LAST_SUCCESS_TS="${LAST_SUCCESS_TS:-0}"
+fi
+
+write_metrics() {
+  local exit_code="$1" end_ts status last_success
+  set +e
+  [[ -d "${METRICS_DIR}" ]] || return 0
+  end_ts="$(date +%s)"; status=0; last_success="${LAST_SUCCESS_TS}"
+  if [[ "${exit_code}" -eq 0 ]]; then status=1; last_success="${end_ts}"; fi
+  cat > "${METRICS_TMP}" <<EOF
+# HELP platform_forge_backup_last_status Last application artifact backup status (1=success, 0=failure)
+# TYPE platform_forge_backup_last_status gauge
+platform_forge_backup_last_status{backup="nextcloud"} ${status}
+# HELP platform_forge_backup_last_run_timestamp Unix timestamp of the last application backup attempt
+# TYPE platform_forge_backup_last_run_timestamp gauge
+platform_forge_backup_last_run_timestamp{backup="nextcloud"} ${end_ts}
+# HELP platform_forge_backup_last_success_timestamp Unix timestamp of the last successful application backup
+# TYPE platform_forge_backup_last_success_timestamp gauge
+platform_forge_backup_last_success_timestamp{backup="nextcloud"} ${last_success}
+# HELP platform_forge_backup_last_duration_seconds Duration of the last application backup attempt
+# TYPE platform_forge_backup_last_duration_seconds gauge
+platform_forge_backup_last_duration_seconds{backup="nextcloud"} $((end_ts - START_TS))
+EOF
+  mv -f "${METRICS_TMP}" "${METRICS_FILE}"
+}
+
+cleanup() {
+  local exit_code=$?
+  if [[ "${MAINTENANCE_ENABLED}" -eq 1 ]]; then
+    docker exec -u www-data "${CONTAINER}" php occ maintenance:mode --off || true
+  fi
+  rm -rf -- "${STAGING_DIR}"
+  write_metrics "${exit_code}"
+  exit "${exit_code}"
+}
+trap cleanup EXIT
+
+exec 9>/run/lock/platform-forge-backup-artifacts.lock
+flock -n 9 || { echo "ERROR: another application artifact backup is running" >&2; exit 1; }
+
+[[ -f "${SOURCE_DB}" ]] || { echo "ERROR: Nextcloud database is missing" >&2; exit 1; }
+[[ -f "${SOURCE_CONFIG}" ]] || { echo "ERROR: Nextcloud configuration is missing" >&2; exit 1; }
+mkdir -p "${STAGING_DIR}"
+
+docker exec -u www-data "${CONTAINER}" php occ maintenance:mode --on
+MAINTENANCE_ENABLED=1
+cp "${SOURCE_DB}" "${DB_FILE}"
+cp "${SOURCE_CONFIG}" "${CONFIG_FILE}"
+
+[[ -s "${DB_FILE}" && -s "${CONFIG_FILE}" ]] \
+  || { echo "ERROR: incomplete Nextcloud backup generation" >&2; exit 1; }
+sqlite3 "${DB_FILE}" "PRAGMA integrity_check;" | grep -qx "ok" \
+  || { echo "ERROR: Nextcloud SQLite integrity check failed" >&2; exit 1; }
+chown "{{ backup_nextcloud_owner }}:{{ backup_nextcloud_group }}" "${DB_FILE}" "${CONFIG_FILE}"
+chmod "{{ backup_nextcloud_file_mode }}" "${DB_FILE}" "${CONFIG_FILE}"
+
+docker exec -u www-data "${CONTAINER}" php occ maintenance:mode --off
+MAINTENANCE_ENABLED=0
+
+mv "${STAGING_DIR}" "${GENERATION_DIR}"
+ln -s "generations/${GENERATION_ID}" "${BACKUP_ROOT}/.current.$$"
+mv -Tf "${BACKUP_ROOT}/.current.$$" "${BACKUP_ROOT}/current"
+
+find "${GENERATIONS_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+  | sort -r | tail -n "+$((KEEP_GENERATIONS + 1))" \
+  | while IFS= read -r old_generation; do
+      rm -rf -- "${GENERATIONS_DIR}/${old_generation}"
+    done
+
+echo "Nextcloud backup generation published: ${GENERATION_ID}"

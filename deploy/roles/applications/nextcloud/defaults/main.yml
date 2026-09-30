@@ -1,0 +1,9 @@
+---
+nextcloud_enabled: false
+nextcloud_app_dir: "{{ platform_apps_root }}/nextcloud"
+nextcloud_data_dir: "{{ platform_data_root }}/nextcloud"
+nextcloud_container_name: nextcloud
+nextcloud_storage_owner: "{{ platform_admin_user }}"
+nextcloud_storage_group: "{{ platform_admin_user }}"
+
+nextcloud_image: "{{ docker_images.nextcloud.repository }}:{{ docker_images.nextcloud.tag }}"

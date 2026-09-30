@@ -1,0 +1,150 @@
+---
+- name: Check failed systemd services
+  ansible.builtin.command:
+    cmd: systemctl --failed --no-legend
+  register: maintenance_failed_services
+  changed_when: false
+  failed_when: false
+
+- name: Display failed systemd services
+  ansible.builtin.debug:
+    msg: >-
+      {{
+        maintenance_failed_services.stdout_lines
+        if maintenance_failed_services.stdout_lines | length > 0
+        else ['No failed systemd services']
+      }}
+
+- name: Check root filesystem usage
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      df -P / | awk 'NR==2 {gsub("%","",$5); print $5}'
+    executable: /bin/bash
+  register: maintenance_root_usage
+  changed_when: false
+
+- name: Validate filesystem usage
+  ansible.builtin.assert:
+    that:
+      - maintenance_root_usage.stdout | int < maintenance_disk_critical_percent
+    fail_msg: >-
+      Root filesystem usage is CRITICAL:
+      {{ maintenance_root_usage.stdout }}%
+    success_msg: >-
+      Root filesystem usage:
+      {{ maintenance_root_usage.stdout }}%
+
+- name: Warn when filesystem usage is high
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: root filesystem usage is
+      {{ maintenance_root_usage.stdout }}%
+  when:
+    - maintenance_root_usage.stdout | int >= maintenance_disk_warning_percent
+    - maintenance_root_usage.stdout | int < maintenance_disk_critical_percent
+
+- name: Check Restic repository
+  ansible.builtin.command:
+    argv:
+      - restic
+      - check
+  environment: >-
+    {{
+      restic_environment
+      | combine({
+          'RESTIC_REPOSITORY': restic_repository,
+          'RESTIC_PASSWORD_FILE': restic_password_file
+        })
+    }}
+  register: maintenance_restic_check
+  changed_when: false
+  when: maintenance_check_restic | bool
+  no_log: true
+
+- name: Report successful Restic repository check
+  ansible.builtin.debug:
+    msg: "The configured Restic repository check succeeded."
+  when: maintenance_check_restic | bool
+
+- name: Check Docker service
+  ansible.builtin.command:
+    cmd: systemctl is-active docker
+  register: maintenance_docker_service
+  changed_when: false
+  failed_when: false
+  when: maintenance_check_docker | bool
+
+- name: Validate Docker service
+  ansible.builtin.assert:
+    that:
+      - maintenance_docker_service.stdout == "active"
+    fail_msg: "Docker service is not active."
+  when: maintenance_check_docker | bool
+
+- name: Get Docker disk usage
+  ansible.builtin.command:
+    cmd: docker system df
+  register: maintenance_docker_df
+  changed_when: false
+  when: maintenance_check_docker | bool
+
+- name: Display Docker disk usage
+  ansible.builtin.debug:
+    var: maintenance_docker_df.stdout_lines
+  when: maintenance_check_docker | bool
+
+- name: Get Docker container states
+  ansible.builtin.command:
+    cmd: docker ps -a --format "{{ '{{' }}.Names{{ '}}' }}|{{ '{{' }}.Status{{ '}}' }}"
+  register: maintenance_docker_containers
+  changed_when: false
+  when: maintenance_check_docker | bool
+
+- name: Display Docker container states
+  ansible.builtin.debug:
+    var: maintenance_docker_containers.stdout_lines
+  when: maintenance_check_docker | bool
+
+- name: Prune dangling Docker images
+  ansible.builtin.command:
+    cmd: docker image prune -f
+  register: maintenance_docker_image_prune
+  changed_when: >-
+    'Total reclaimed space: 0B'
+    not in maintenance_docker_image_prune.stdout
+  when:
+    - maintenance_check_docker | bool
+    - maintenance_docker_cleanup_enabled | bool
+    - maintenance_docker_prune_dangling_images | bool
+
+- name: Display Docker image cleanup result
+  ansible.builtin.debug:
+    var: maintenance_docker_image_prune.stdout_lines
+  when:
+    - maintenance_docker_cleanup_enabled | bool
+    - maintenance_docker_prune_dangling_images | bool
+    - maintenance_docker_image_prune is defined
+    
+- name: Prune old Docker builder cache
+  ansible.builtin.command:
+    cmd: >-
+      docker builder prune
+      -f
+      --filter until={{ maintenance_docker_builder_cache_age }}
+  register: maintenance_docker_builder_prune
+  changed_when: >-
+    'Total reclaimed space: 0B'
+    not in maintenance_docker_builder_prune.stdout
+  when:
+    - maintenance_check_docker | bool
+    - maintenance_docker_cleanup_enabled | bool
+    - maintenance_docker_builder_cache_enabled | bool
+
+- name: Display Docker builder cleanup result
+  ansible.builtin.debug:
+    var: maintenance_docker_builder_prune.stdout_lines
+  when:
+    - maintenance_docker_cleanup_enabled | bool
+    - maintenance_docker_builder_cache_enabled | bool
+    - maintenance_docker_builder_prune is defined

@@ -1,0 +1,35 @@
+---
+- name: Create gitlab directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - "{{ gitlab_app_dir }}"
+    - "{{ gitlab_data_dir }}"
+    - "{{ gitlab_config_dir }}"
+    - "{{ gitlab_logs_dir }}"
+    - "{{ gitlab_data_store_dir }}"
+
+- name: generate gitlab compose.yml file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ gitlab_app_dir }}/compose.yml"
+    owner: "{{ gitlab_storage_owner }}"
+    group: "{{ gitlab_storage_group }}"
+    mode: '0644'
+
+- name: Deploy gitlab docker-compose stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ gitlab_app_dir }}"
+    state: present
+
+- name: Wait for GitLab container to be healthy
+  community.docker.docker_container_info:
+    name: "{{ gitlab_container_name }}"
+  register: gitlab_container_info
+  until:
+    - gitlab_container_info.exists
+    - gitlab_container_info.container.State.Status == "running"
+    - gitlab_container_info.container.State.Health.Status == "healthy"
+  retries: 40
+  delay: 15

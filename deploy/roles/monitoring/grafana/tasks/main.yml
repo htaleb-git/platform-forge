@@ -1,0 +1,94 @@
+---
+- name: Create Grafana application directory
+  ansible.builtin.file:
+    path: "{{ grafana_app_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create Grafana data directory
+  ansible.builtin.file:
+    path: "{{ grafana_data_dir }}"
+    state: directory
+    owner: "472"
+    group: "472"
+    mode: "0755"
+
+- name: Create Grafana dashboard directory
+  ansible.builtin.file:
+    path: "{{ grafana_dashboards_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create Grafana provisioning directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ grafana_provisioning_dir }}"
+    - "{{ grafana_provisioning_dir }}/datasources"
+    - "{{ grafana_provisioning_dir }}/dashboards"
+
+- name: Deploy Prometheus datasource
+  ansible.builtin.template:
+    src: datasource.yml.j2
+    dest: "{{ grafana_provisioning_dir }}/datasources/prometheus.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart grafana
+
+- name: Deploy Grafana compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ grafana_app_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart grafana
+
+- name: Deploy Grafana dashboard provider
+  ansible.builtin.template:
+    src: dashboards.yml.j2
+    dest: "{{ grafana_provisioning_dir }}/dashboards/dashboards.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart grafana
+
+- name: Provision Backup Health dashboard
+  ansible.builtin.copy:
+    src: dashboards/backup-health.json
+    dest: "{{ grafana_dashboards_dir }}/backup-health.json"
+    mode: "0644"
+
+- name: Provision Storage and Restic dashboard
+  ansible.builtin.copy:
+    src: dashboards/storage-restic.json
+    dest: "{{ grafana_dashboards_dir }}/storage-restic.json"
+    mode: "0644"
+  when: grafana_storage_dashboard_enabled | bool
+
+- name: Deploy Grafana dashboards
+  ansible.builtin.copy:
+    src: "dashboards/{{ item }}"
+    dest: "{{ grafana_dashboards_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - node-exporter-full.json
+    - cadvisor-docker.json
+  notify: Restart grafana
+  
+- name: Start Grafana
+  community.docker.docker_compose_v2:
+    project_src: "{{ grafana_app_dir }}"
+    state: present
+  when: not ansible_check_mode

@@ -1,0 +1,7 @@
+---
+grafana_enabled: false
+grafana_image: "grafana/grafana:{{ grafana_version }}"
+grafana_container_name: grafana
+grafana_restart_policy: unless-stopped
+
+grafana_prometheus_url: "http://prometheus:9090"

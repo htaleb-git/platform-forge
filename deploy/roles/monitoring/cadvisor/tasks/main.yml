@@ -1,0 +1,24 @@
+---
+- name: Deploy cAdvisor container
+  community.docker.docker_container:
+    name: "{{ cadvisor_container_name }}"
+    image: "{{ cadvisor_image }}"
+    state: started
+    restart_policy: "{{ cadvisor_restart_policy }}"
+
+    command: "{{ cadvisor_command | default(omit, true) }}"
+
+    networks:
+      - name: monitoring
+      
+    volumes:
+      - "/:/rootfs:ro"
+      - "/var/run:/var/run:ro"
+      - "/sys:/sys:ro"
+      - "/var/lib/docker:/var/lib/docker:ro"
+      - "/dev/disk:/dev/disk:ro"
+
+    devices:
+      - "/dev/kmsg:/dev/kmsg"
+
+    privileged: true

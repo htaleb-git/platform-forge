@@ -1,0 +1,71 @@
+---
+- name: Validate GitLab backup publication paths
+  ansible.builtin.assert:
+    that:
+      - backup_gitlab_root.startswith(platform_backup_root + '/')
+      - backup_gitlab_generations_to_keep | int >= 1
+    fail_msg: "Invalid GitLab backup publication configuration."
+
+- name: Create GitLab backup publication directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - "{{ backup_gitlab_root }}"
+    - "{{ backup_gitlab_generations_dir }}"
+    - "{{ platform_backup_root }}/.staging/gitlab"
+    - "{{ backup_gitlab_restore_dir }}"
+
+- name: Deploy GitLab backup script
+  ansible.builtin.template:
+    src: backup-gitlab.sh.j2
+    dest: /usr/local/sbin/backup-gitlab.sh
+    owner: root
+    group: root
+    mode: "0750"    
+
+- name: Deploy Gitlab systemd service
+  ansible.builtin.template:
+    src: backup-gitlab.service.j2
+    dest: /etc/systemd/system/backup-gitlab.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Deploy Gitlab systemd timer
+  ansible.builtin.template:
+    src: backup-gitlab.timer.j2
+    dest: /etc/systemd/system/backup-gitlab.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Enable and start GitLab backup timer
+  ansible.builtin.systemd:
+    name: backup-gitlab.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: backup_gitlab_enabled | bool       
+
+- name: Disable gitlab backup timer
+  ansible.builtin.systemd:
+    name: backup-gitlab.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when: not backup_gitlab_enabled | bool
+
+- name: Deploy GitLab restore script
+  ansible.builtin.template:
+    src: restore-gitlab.sh.j2
+    dest: /usr/local/sbin/restore-gitlab.sh
+    owner: root
+    group: root
+    mode: "0750"
+  

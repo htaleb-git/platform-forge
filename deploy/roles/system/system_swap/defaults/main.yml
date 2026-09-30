@@ -1,0 +1,5 @@
+---
+system_swap_enabled: false
+system_swap_file: /swapfile
+system_swap_size: 2G
+system_swap_swappiness: 10

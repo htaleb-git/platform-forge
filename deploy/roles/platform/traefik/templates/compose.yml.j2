@@ -1,0 +1,53 @@
+services:
+  traefik:
+    image: "{{ docker_images.traefik.repository }}:{{ docker_images.traefik.tag }}"
+    container_name: traefik
+    restart: unless-stopped
+
+    environment:
+      DOCKER_API_VERSION: "1.55"
+
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.imaps.address=:993"
+
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+
+{% if traefik_tls_mode == "acme" %}
+      - "--certificatesresolvers.{{ traefik_acme_resolver }}.acme.email={{ traefik_acme_email }}"
+      - "--certificatesresolvers.{{ traefik_acme_resolver }}.acme.storage=/etc/traefik/acme/acme.json"
+      - "--certificatesresolvers.{{ traefik_acme_resolver }}.acme.httpchallenge.entrypoint=web"
+{% endif %}
+
+    ports:
+      - "{{ traefik_http_port }}:80"
+      - "{{ traefik_https_port }}:443"
+      - "{{ traefik_imaps_port }}:993"
+
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "{{ traefik_app_dir }}/dynamic:/etc/traefik/dynamic:ro"
+
+{% if traefik_tls_mode == "internal" %}
+      - "{{ traefik_app_dir }}/certs:/etc/traefik/certs:ro"
+{% endif %}
+
+{% if traefik_tls_mode == "acme" %}
+      - "{{ traefik_acme_storage }}:/etc/traefik/acme/acme.json"
+{% endif %}
+
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+    name: {{ traefik_network_proxy }}

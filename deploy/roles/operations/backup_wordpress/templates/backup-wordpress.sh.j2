@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_ROOT="{{ backup_wordpress_root }}"
+GENERATIONS_DIR="{{ backup_wordpress_generations_dir }}"
+STAGING_PARENT="{{ platform_backup_root }}/.staging/wordpress"
+GENERATION_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+STAGING_DIR="${STAGING_PARENT}/${GENERATION_ID}"
+GENERATION_DIR="${GENERATIONS_DIR}/${GENERATION_ID}"
+DUMP_FILE="${STAGING_DIR}/{{ backup_wordpress_dump_name }}"
+CONTENT_FILE="${STAGING_DIR}/{{ backup_wordpress_content_name }}"
+CONTENT_DIR="{{ backup_wordpress_content_dir }}"
+KEEP_GENERATIONS={{ backup_wordpress_generations_to_keep | int }}
+
+METRICS_DIR="{{ backup_wordpress_metrics_dir }}"
+METRICS_FILE="${METRICS_DIR}/backup_wordpress.prom"
+METRICS_TMP="${METRICS_FILE}.tmp.$$"
+START_TS="$(date +%s)"
+LAST_SUCCESS_TS=0
+
+if [[ -f "${METRICS_FILE}" ]]; then
+  LAST_SUCCESS_TS="$(awk '/^platform_forge_backup_last_success_timestamp\{backup="wordpress"\}/ {print $2}' "${METRICS_FILE}" | tail -1)"
+  LAST_SUCCESS_TS="${LAST_SUCCESS_TS:-0}"
+fi
+
+write_metrics() {
+  local exit_code="$1" end_ts status last_success
+  set +e
+  [[ -d "${METRICS_DIR}" ]] || return 0
+  end_ts="$(date +%s)"; status=0; last_success="${LAST_SUCCESS_TS}"
+  if [[ "${exit_code}" -eq 0 ]]; then status=1; last_success="${end_ts}"; fi
+  cat > "${METRICS_TMP}" <<EOF
+# HELP platform_forge_backup_last_status Last application artifact backup status (1=success, 0=failure)
+# TYPE platform_forge_backup_last_status gauge
+platform_forge_backup_last_status{backup="wordpress"} ${status}
+# HELP platform_forge_backup_last_run_timestamp Unix timestamp of the last application backup attempt
+# TYPE platform_forge_backup_last_run_timestamp gauge
+platform_forge_backup_last_run_timestamp{backup="wordpress"} ${end_ts}
+# HELP platform_forge_backup_last_success_timestamp Unix timestamp of the last successful application backup
+# TYPE platform_forge_backup_last_success_timestamp gauge
+platform_forge_backup_last_success_timestamp{backup="wordpress"} ${last_success}
+# HELP platform_forge_backup_last_duration_seconds Duration of the last application backup attempt
+# TYPE platform_forge_backup_last_duration_seconds gauge
+platform_forge_backup_last_duration_seconds{backup="wordpress"} $((end_ts - START_TS))
+EOF
+  mv -f "${METRICS_TMP}" "${METRICS_FILE}"
+}
+
+cleanup() {
+  local exit_code=$?
+  rm -rf -- "${STAGING_DIR}"
+  write_metrics "${exit_code}"
+  exit "${exit_code}"
+}
+trap cleanup EXIT
+
+exec 9>/run/lock/platform-forge-backup-artifacts.lock
+flock -n 9 || { echo "ERROR: another application artifact backup is running" >&2; exit 1; }
+
+[[ -d "${CONTENT_DIR}" ]] || { echo "ERROR: WordPress content directory is missing" >&2; exit 1; }
+mkdir -p "${STAGING_DIR}"
+
+docker exec "{{ backup_wordpress_mariadb_container_name }}" \
+  mariadb-dump -u root "-p{{ vault_wordpress_mariadb_root_password }}" \
+  --single-transaction --quick --lock-tables=false "{{ wordpress_db_name }}" \
+  > "${DUMP_FILE}"
+
+[[ -s "${DUMP_FILE}" ]] || { echo "ERROR: generated WordPress database dump is empty" >&2; exit 1; }
+if ! grep -q "MariaDB dump" "${DUMP_FILE}" && ! grep -q "MySQL dump" "${DUMP_FILE}"; then
+  echo "ERROR: WordPress database dump does not appear valid" >&2
+  exit 1
+fi
+
+tar -C "$(dirname "${CONTENT_DIR}")" -czf "${CONTENT_FILE}" "$(basename "${CONTENT_DIR}")"
+[[ -s "${CONTENT_FILE}" ]] || { echo "ERROR: generated WordPress content archive is empty" >&2; exit 1; }
+tar -tzf "${CONTENT_FILE}" >/dev/null
+
+chown "{{ backup_wordpress_owner }}:{{ backup_wordpress_group }}" "${DUMP_FILE}" "${CONTENT_FILE}"
+chmod "{{ backup_wordpress_file_mode }}" "${DUMP_FILE}" "${CONTENT_FILE}"
+
+mv "${STAGING_DIR}" "${GENERATION_DIR}"
+ln -s "generations/${GENERATION_ID}" "${BACKUP_ROOT}/.current.$$"
+mv -Tf "${BACKUP_ROOT}/.current.$$" "${BACKUP_ROOT}/current"
+
+find "${GENERATIONS_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+  | sort -r | tail -n "+$((KEEP_GENERATIONS + 1))" \
+  | while IFS= read -r old_generation; do
+      rm -rf -- "${GENERATIONS_DIR}/${old_generation}"
+    done
+
+echo "WordPress backup generation published: ${GENERATION_ID}"

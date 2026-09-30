@@ -1,0 +1,8 @@
+---
+prometheus_enabled: false
+prometheus_container_name: prometheus
+prometheus_image: "prom/prometheus:v{{ prometheus_version }}"
+
+prometheus_restart_policy: unless-stopped
+
+

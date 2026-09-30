@@ -1,0 +1,168 @@
+---
+- name: Initialize platform nodes
+  hosts: platform_nodes
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Validate platform bootstrap configuration
+      ansible.builtin.assert:
+        that:
+          - platform_admin_user is match('^[a-z_][a-z0-9_-]*$')
+          - platform_hostname is match('^[a-z0-9][a-z0-9-]{0,62}$')
+          - platform_domain | length > 0
+          - platform_ssh_port | int >= 1
+          - platform_ssh_port | int <= 65535
+          - platform_admin_authorized_keys is sequence
+          - platform_admin_authorized_keys is not string
+          - platform_admin_authorized_keys | length > 0
+          - vault_platform_admin_password_hash | default('') | length > 0
+          - vault_platform_admin_password_hash | default('') != 'CHANGE_ME'
+        fail_msg: "Invalid platform administrator or SSH configuration."
+      no_log: true
+
+    - name: Verify that the target operating system is Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == "Ubuntu"
+        fail_msg: "This playbook currently supports Ubuntu only."
+        success_msg: "Ubuntu operating system detected."
+
+    - name: Verify that SSH public key files exist on the control node
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      delegate_to: localhost
+      become: false
+      loop: "{{ platform_admin_authorized_keys }}"
+      register: ssh_public_key_files
+
+    - name: Stop when an SSH public key is missing
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isreg
+        fail_msg: "SSH public key not found: {{ item.item }}"
+      loop: "{{ ssh_public_key_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+  tasks:
+    - name: Set server hostname
+      ansible.builtin.hostname:
+        name: "{{ platform_hostname }}"
+
+    - name: Ensure hostname is present in /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1(\s+.*)?$'
+        line: >-
+          127.0.1.1
+          {{ platform_fqdn }}
+          {{ platform_hostname }}
+        state: present
+        backup: true
+
+    - name: Ensure administration user exists
+      ansible.builtin.user:
+        name: "{{ platform_admin_user }}"
+        shell: /bin/bash
+        groups:
+          - adm
+          - sudo
+        append: true
+        state: present
+        password: "{{ vault_platform_admin_password_hash }}"
+      no_log: true
+
+    - name: Install administration SSH public keys
+      ansible.posix.authorized_key:
+        user: "{{ platform_admin_user }}"
+        state: present
+        key: "{{ lookup('ansible.builtin.file', item) }}"
+        manage_dir: true
+      loop: "{{ platform_admin_authorized_keys }}"
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Ensure UFW is installed
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Allow the new SSH port before changing SSH configuration
+      community.general.ufw:
+        rule: allow
+        port: "{{ platform_ssh_port }}"
+        proto: tcp
+        comment: SSH
+
+    - name: Configure SSH listening port
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^\s*#?\s*Port\s+'
+        line: "Port {{ platform_ssh_port }}"
+        state: present
+        backup: true
+        validate: "/usr/sbin/sshd -t -f %s"
+      notify: Reload systemd and restart SSH socket
+
+    - name: Disable SSH root login
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^\s*#?\s*PermitRootLogin\s+'
+        line: "PermitRootLogin no"
+        state: present
+        backup: true
+        validate: "/usr/sbin/sshd -t -f %s"
+      notify: Reload systemd and restart SSH socket
+
+    - name: Disable SSH password authentication
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^\s*#?\s*PasswordAuthentication\s+'
+        line: >-
+          PasswordAuthentication
+          {{ 'yes' if platform_ssh_password_authentication else 'no' }}
+        state: present
+        backup: true
+        validate: "/usr/sbin/sshd -t -f %s"
+      notify: Reload systemd and restart SSH socket   
+
+    - name: Configure SSH hardening overrides
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/00-hardening.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          PasswordAuthentication no
+          PermitRootLogin no
+      notify: Reload systemd and restart SSH socket   
+
+    - name: Apply SSH configuration changes immediately
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for SSH to listen on the new port
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ platform_ssh_port }}"
+        timeout: 30
+      delegate_to: localhost
+      become: false
+      when: not ansible_check_mode
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+
+  handlers:
+    - name: Reload systemd and restart SSH socket
+      ansible.builtin.systemd_service:
+        name: ssh.socket
+        state: restarted
+        enabled: true
+        daemon_reload: true

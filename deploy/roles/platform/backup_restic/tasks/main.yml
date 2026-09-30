@@ -1,0 +1,147 @@
+---
+- name: Validate Restic public configuration
+  ansible.builtin.assert:
+    that:
+      - restic_repository | length > 0
+      - restic_repository != "CHANGE_ME"
+      - restic_password_file.startswith('/')
+      - restic_password_file | length > 1
+      - restic_environment_file.startswith('/')
+      - restic_environment_file | length > 1
+      - restic_backup_paths is sequence
+      - restic_backup_paths is not string
+      - restic_backup_paths | length > 0
+      - restic_backup_paths | select('match', '^/') | list | length == restic_backup_paths | length
+      - restic_options is sequence
+      - restic_options is not string
+      - restic_tags is sequence
+      - restic_tags is not string
+      - restic_tags | length > 0
+      - restic_environment is mapping
+      - restic_retention is mapping
+      - restic_retention.keys() | list | difference(['keep_last', 'keep_hourly', 'keep_daily', 'keep_weekly', 'keep_monthly', 'keep_yearly']) | length == 0
+      - restic_retention | length == 0 or (restic_retention.values() | map('int') | sum) > 0
+      - vault_restic_password | default('') | length > 0
+      - vault_restic_password | default('') != "CHANGE_ME"
+    fail_msg: "Invalid or incomplete Restic configuration."
+  no_log: true
+
+- name: Validate Restic backup source paths
+  ansible.builtin.assert:
+    that:
+      - item.startswith('/')
+      - item != '/'
+    fail_msg: "Restic backup source paths must be absolute and cannot be root."
+  loop: "{{ restic_backup_paths }}"
+
+- name: Validate Restic retention values
+  ansible.builtin.assert:
+    that:
+      - (item.value | string) is match('^[0-9]+$')
+      - item.value | int >= 0
+    fail_msg: "Restic retention values must be non-negative integers."
+  loop: "{{ restic_retention | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Validate Restic environment variable names
+  ansible.builtin.assert:
+    that:
+      - item.key is match('^[A-Z_][A-Z0-9_]*$')
+      - item.key not in ['RESTIC_REPOSITORY', 'RESTIC_PASSWORD_FILE']
+    fail_msg: "Invalid Restic environment variable name."
+  loop: "{{ restic_environment | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+
+- name: Install Restic
+  ansible.builtin.apt:
+    name: restic
+    state: present
+    update_cache: true
+
+- name: Create Restic and backup directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ restic_password_file | dirname }}"
+      mode: "0700"
+    - path: "{{ platform_backup_root }}"
+      mode: "0700"
+
+- name: Deploy Restic password file
+  ansible.builtin.copy:
+    content: "{{ vault_restic_password }}\n"
+    dest: "{{ restic_password_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Deploy Restic backend environment
+  ansible.builtin.template:
+    src: restic-environment.j2
+    dest: "{{ restic_environment_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Deploy Restic operation scripts
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - src: backup-restic.sh.j2
+      dest: /usr/local/sbin/backup-restic.sh
+    - src: check-restic.sh.j2
+      dest: /usr/local/sbin/check-restic.sh
+    - src: maintenance-restic.sh.j2
+      dest: /usr/local/sbin/maintenance-restic.sh
+  no_log: true
+
+- name: Deploy Restic systemd services
+  ansible.builtin.template:
+    src: "{{ item }}.service.j2"
+    dest: "/etc/systemd/system/{{ item }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - backup-restic
+    - check-restic
+    - maintenance-restic
+  notify: Reload systemd
+
+- name: Deploy Restic systemd timers
+  ansible.builtin.template:
+    src: "{{ item }}.timer.j2"
+    dest: "/etc/systemd/system/{{ item }}.timer"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - backup-restic
+    - check-restic
+    - maintenance-restic
+  notify: Reload systemd
+
+- name: Enable Restic timers
+  ansible.builtin.systemd:
+    name: "{{ item }}.timer"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - backup-restic
+    - check-restic
+    - maintenance-restic
+  when: not ansible_check_mode

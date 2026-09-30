@@ -1,0 +1,48 @@
+---
+- name: Configure platform backups
+  hosts: platform_nodes
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: backup_gitlab
+      when:
+        - gitlab_enabled | bool
+        - backup_gitlab_enabled | default(false) | bool
+      tags:
+        - backup
+        - backup-gitlab
+        - gitlab
+
+    - role: backup_nextcloud
+      when:
+        - nextcloud_enabled | bool
+        - backup_nextcloud_enabled | default(false) | bool
+      tags:
+        - backup
+        - backup-nextcloud
+        - nextcloud
+
+    - role: backup_n8n
+      when:
+        - n8n_enabled | bool
+        - backup_n8n_enabled | default(false) | bool
+      tags:
+        - backup
+        - backup-n8n
+        - n8n
+
+    - role: backup_wordpress
+      when:
+        - wordpress_enabled | bool
+        - backup_wordpress_enabled | default(false) | bool
+      tags:
+        - backup
+        - backup-wordpress
+        - wordpress
+
+    - role: backup_restic
+      when: restic_enabled | bool
+      tags:
+        - backup
+        - restic

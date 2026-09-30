@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONTAINER="{{ backup_nextcloud_container_name }}"
+
+BACKUP_DIR="{{ backup_nextcloud_dir }}"
+
+BACKUP_DB="${BACKUP_DIR}/{{ backup_nextcloud_db_name }}"
+BACKUP_CONFIG="${BACKUP_DIR}/{{ backup_nextcloud_config_name }}"
+
+TARGET_DB="{{ backup_nextcloud_data_dir }}/owncloud.db"
+TARGET_CONFIG="{{ backup_nextcloud_config_file }}"
+
+ROLLBACK_DIR="/tmp/nextcloud-restore-rollback"
+
+MAINTENANCE_ENABLED=0
+
+disable_maintenance() {
+  if [[ "${MAINTENANCE_ENABLED}" -eq 1 ]]; then
+    docker exec -u www-data "${CONTAINER}" \
+      php occ maintenance:mode --off || true
+
+    MAINTENANCE_ENABLED=0
+  fi
+}
+
+cleanup() {
+  local exit_code=$?
+
+  if [[ "${exit_code}" -ne 0 ]]; then
+    echo "ERROR: Nextcloud restore failed." >&2
+  fi
+
+  disable_maintenance
+
+  exit "${exit_code}"
+}
+
+trap cleanup EXIT
+
+if [[ ! -f "${BACKUP_DB}" ]]; then
+  echo "ERROR: Nextcloud backup database not found: ${BACKUP_DB}" >&2
+  exit 1
+fi
+
+if [[ ! -s "${BACKUP_DB}" ]]; then
+  echo "ERROR: Nextcloud backup database is empty: ${BACKUP_DB}" >&2
+  exit 1
+fi
+
+if [[ ! -f "${BACKUP_CONFIG}" ]]; then
+  echo "ERROR: Nextcloud backup config not found: ${BACKUP_CONFIG}" >&2
+  exit 1
+fi
+
+if [[ ! -s "${BACKUP_CONFIG}" ]]; then
+  echo "ERROR: Nextcloud backup config is empty: ${BACKUP_CONFIG}" >&2
+  exit 1
+fi
+
+echo "Checking backup SQLite database"
+
+if ! sqlite3 "${BACKUP_DB}" "PRAGMA integrity_check;" | grep -qx "ok"; then
+  echo "ERROR: Nextcloud backup SQLite integrity check failed." >&2
+  exit 1
+fi
+
+echo "Preparing rollback directory"
+
+rm -rf "${ROLLBACK_DIR}"
+mkdir -p "${ROLLBACK_DIR}"
+
+if [[ -f "${TARGET_DB}" ]]; then
+  cp "${TARGET_DB}" "${ROLLBACK_DIR}/owncloud.db"
+fi
+
+if [[ -f "${TARGET_CONFIG}" ]]; then
+  cp "${TARGET_CONFIG}" "${ROLLBACK_DIR}/config.php"
+fi
+
+echo "Enabling Nextcloud maintenance mode"
+
+docker exec -u www-data "${CONTAINER}" \
+  php occ maintenance:mode --on
+
+MAINTENANCE_ENABLED=1
+
+echo "Restoring Nextcloud SQLite database"
+
+cp "${BACKUP_DB}" "${TARGET_DB}"
+
+chown "{{ nextcloud_container_uid }}:{{ nextcloud_container_gid }}" \
+  "${TARGET_DB}"
+
+chmod "0640" "${TARGET_DB}"
+
+echo "Restoring Nextcloud configuration"
+
+cp "${BACKUP_CONFIG}" "${TARGET_CONFIG}"
+
+chown "{{ nextcloud_container_uid }}:{{ nextcloud_container_gid }}" \
+  "${TARGET_CONFIG}"
+
+chmod "0640" "${TARGET_CONFIG}"
+
+echo "Checking restored SQLite database"
+
+if ! sqlite3 "${TARGET_DB}" "PRAGMA integrity_check;" | grep -qx "ok"; then
+  echo "ERROR: restored Nextcloud SQLite integrity check failed." >&2
+  exit 1
+fi
+
+echo "Disabling Nextcloud maintenance mode"
+
+docker exec -u www-data "${CONTAINER}" \
+  php occ maintenance:mode --off
+
+MAINTENANCE_ENABLED=0
+
+echo "Checking Nextcloud status"
+
+docker exec -u www-data "${CONTAINER}" \
+  php occ status
+
+echo "Nextcloud restore completed successfully."
+echo "Rollback copy available in: ${ROLLBACK_DIR}"
