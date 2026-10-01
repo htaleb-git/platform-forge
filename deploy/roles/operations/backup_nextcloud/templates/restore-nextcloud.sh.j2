@@ -34,6 +34,11 @@ while IFS= read -r entry; do
     || { echo "ERROR: parent traversal found in Nextcloud data archive" >&2; exit 1; }
 done < <(tar -tzf "${BACKUP_DATA}")
 
+if tar -tvzf "${BACKUP_DATA}" | grep -Eq '^[lh]'; then
+  echo "ERROR: links are not allowed in the Nextcloud data archive" >&2
+  exit 1
+fi
+
 docker inspect "${CONTAINER}" >/dev/null
 docker exec -u www-data "${CONTAINER}" php occ status >/dev/null
 [[ -d "$(dirname -- "${TARGET_DB}")" && ! -L "$(dirname -- "${TARGET_DB}")" \

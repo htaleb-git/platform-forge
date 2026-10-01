@@ -24,11 +24,12 @@ https://grafana.example.com
 ```
 
 Name resolution and TLS trust are operator responsibilities. Prometheus
-scrapes itself and enabled exporters. Check targets from the server:
+scrapes itself and enabled exporters. Check targets from the existing Prometheus
+container:
 
 ```bash
-curl -sG --data-urlencode 'query=up' \
-  http://localhost:9090/api/v1/query | python3 -m json.tool
+docker exec prometheus wget -qO- \
+  'http://localhost:9090/api/v1/query?query=up' | python3 -m json.tool
 ```
 
 Enabled targets should report `1`. Node Exporter listens on port 9100; cAdvisor

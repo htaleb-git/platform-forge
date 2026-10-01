@@ -45,11 +45,12 @@ sudo journalctl -u check-restic.service -n 100 --no-pager
 
 ## Monitoring Is Missing Data
 
-Confirm every enabled component was deployed and inspect Prometheus targets:
+Confirm every enabled component was deployed and inspect Prometheus targets from
+inside the existing Prometheus container:
 
 ```bash
-curl -sG --data-urlencode 'query=up' \
-  http://localhost:9090/api/v1/query | python3 -m json.tool
+docker exec prometheus wget -qO- \
+  'http://localhost:9090/api/v1/query?query=up' | python3 -m json.tool
 ```
 
 For Grafana access failures, verify its configured hostname resolves from the

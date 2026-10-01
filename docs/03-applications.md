@@ -51,6 +51,11 @@ more resource-intensive than the other applications. Allow time for its health
 check after deployment. Its native backup and restore are version-sensitive;
 use the same compatible GitLab version when recovering.
 
+Git clone and push over SSH use the host port `2222` by default. This port is
+configurable with `gitlab_ssh_port` and is published directly by Docker to
+GitLab's SSH port. When GitLab SSH access is required, account for the selected
+port in the external firewall and network policy.
+
 ## Operations
 
 Use the runner rather than direct Compose commands for normal lifecycle work:
