@@ -125,10 +125,14 @@ For a publicly reachable domain, set `traefik_tls_mode: acme` and provide a
 real `traefik_acme_email`. Traefik obtains certificates with Let's Encrypt ACME
 HTTP-01. Before deployment, ensure every enabled hostname has a public A
 record; publish an AAAA record only when IPv6 reaches the same host. TCP ports
-80 and 443 must reach Traefik through any router/NAT, cloud firewall, and host
-firewall, and must not be occupied by another service. Bootstrap permits the
-configured Traefik HTTP/HTTPS ports in host UFW; configure any external firewall
-as well. Wait for DNS propagation. Platform Forge does not configure DNS.
+80 and 443 must reach Traefik through every relevant router/NAT, cloud firewall,
+security group, and host firewall layer, and must not be occupied by another
+service. Wait for DNS propagation. Platform Forge does not configure DNS.
+
+> **Warning:** Docker-published ports interact with the host netfilter rules and
+> may remain reachable independently of what `ufw status` appears to show. UFW
+> alone must not be treated as the security boundary for Docker-published
+> services.
 
 ## Paths and Versions
 
