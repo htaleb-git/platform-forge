@@ -58,6 +58,14 @@
         fail_msg: "Restore cancelled."
       tags: [never, restore-gitlab, restore-nextcloud, restore-n8n, restore-wordpress]
 
+    - name: Report protected restore start
+      ansible.builtin.debug:
+        msg: >-
+          {{ restore_application }} restore from snapshot {{ restore_snapshot_id }} is starting.
+          The protected restore command can remain silent while it downloads,
+          validates, and replaces application data.
+      tags: [never, restore-gitlab, restore-nextcloud, restore-n8n, restore-wordpress]
+
     - name: Restore selected application from exact snapshot
       ansible.builtin.command:
         argv:

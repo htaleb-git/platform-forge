@@ -10,8 +10,18 @@ traefik_http_port: 80
 traefik_https_port: 443
 
 traefik_tls_mode: internal
+traefik_internal_tls_source: provided
 traefik_tls_cert_name: platform.crt
 traefik_tls_private_key_name: platform.key
+traefik_internal_tls_sans: >-
+  {{
+    [platform_fqdn | default((platform_hostname | default(inventory_hostname)) + '.' + platform_domain)]
+    + ([n8n_hostname | default('n8n.' + platform_domain)] if n8n_enabled | default(false) | bool else [])
+    + ([nextcloud_hostname | default('nextcloud.' + platform_domain)] if nextcloud_enabled | default(false) | bool else [])
+    + ([wordpress_hostname | default('wordpress.' + platform_domain)] if wordpress_enabled | default(false) | bool else [])
+    + ([gitlab_hostname | default('gitlab.' + platform_domain)] if gitlab_enabled | default(false) | bool else [])
+    + ([grafana_hostname | default('grafana.' + platform_domain)] if grafana_enabled | default(false) | bool else [])
+  }}
 traefik_acme_email: ""
 traefik_acme_resolver: letsencrypt
 traefik_acme_storage: "{{ traefik_app_dir }}/acme.json"

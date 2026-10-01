@@ -4,13 +4,16 @@
     that:
       - traefik_app_dir is match('^/[^/]+')
       - traefik_tls_mode in ['acme', 'internal']
+      - traefik_internal_tls_source in ['provided', 'generated']
       - traefik_tls_mode != 'acme' or traefik_acme_email | length > 0
       - traefik_tls_mode != 'acme' or traefik_acme_email is match('^[^@ ]+@[^@ ]+$')
       - traefik_tls_mode != 'acme' or traefik_acme_storage.startswith(traefik_app_dir + '/')
-      - traefik_tls_mode != 'internal' or vault_traefik_tls_private_key | default('') | length > 0
-      - traefik_tls_mode != 'internal' or vault_traefik_tls_private_key | default('') != 'CHANGE_ME'
-      - traefik_tls_mode != 'internal' or vault_traefik_tls_certificate | default('') | length > 0
-      - traefik_tls_mode != 'internal' or vault_traefik_tls_certificate | default('') != 'CHANGE_ME'
+      - traefik_tls_mode != 'internal' or traefik_internal_tls_source != 'generated' or traefik_internal_tls_sans | length > 0
+      - traefik_tls_mode != 'internal' or traefik_internal_tls_source != 'generated' or traefik_internal_tls_sans | select('match', '^[A-Za-z0-9][A-Za-z0-9.-]*$') | list | length == traefik_internal_tls_sans | length
+      - traefik_tls_mode != 'internal' or traefik_internal_tls_source != 'provided' or vault_traefik_tls_private_key | default('') | length > 0
+      - traefik_tls_mode != 'internal' or traefik_internal_tls_source != 'provided' or vault_traefik_tls_private_key | default('') != 'CHANGE_ME'
+      - traefik_tls_mode != 'internal' or traefik_internal_tls_source != 'provided' or vault_traefik_tls_certificate | default('') | length > 0
+      - traefik_tls_mode != 'internal' or traefik_internal_tls_source != 'provided' or vault_traefik_tls_certificate | default('') != 'CHANGE_ME'
     fail_msg: "Invalid Traefik path, TLS mode, ACME input, or internal TLS secret configuration."
   no_log: true
 
@@ -38,10 +41,74 @@
   ansible.builtin.file:
     path: "{{ traefik_tls_cert_dir }}"
     state: directory
-    owner: "{{ traefik_storage_owner }}"
-    group: "{{ traefik_storage_group }}"
+    owner: root
+    group: root
     mode: '0755'
   when: traefik_tls_mode == "internal"
+
+- name: Check generated internal TLS material
+  ansible.builtin.stat:
+    path: "{{ traefik_tls_cert_dir }}/{{ item }}"
+  loop:
+    - "{{ traefik_tls_private_key_name }}"
+    - "{{ traefik_tls_cert_name }}"
+  register: traefik_generated_tls_material
+  when:
+    - traefik_tls_mode == "internal"
+    - traefik_internal_tls_source == "generated"
+
+- name: Validate generated internal TLS material state
+  ansible.builtin.assert:
+    that:
+      - >-
+        traefik_generated_tls_material.results | map(attribute='stat.exists')
+        | select('equalto', true) | list | length in [0, 2]
+      - >-
+        traefik_generated_tls_material.results | map(attribute='stat.exists')
+        | select('equalto', true) | list | length
+        == traefik_generated_tls_material.results | map(attribute='stat.isreg')
+        | select('equalto', true) | list | length
+    fail_msg: "Generated internal TLS material must contain both a certificate and private key or neither."
+  when:
+    - traefik_tls_mode == "internal"
+    - traefik_internal_tls_source == "generated"
+
+- name: Generate self-signed internal TLS material
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -x509
+      - -newkey
+      - rsa:4096
+      - -nodes
+      - -days
+      - "825"
+      - -keyout
+      - "{{ traefik_tls_cert_dir }}/{{ traefik_tls_private_key_name }}"
+      - -out
+      - "{{ traefik_tls_cert_dir }}/{{ traefik_tls_cert_name }}"
+      - -subj
+      - "/CN={{ traefik_internal_tls_sans | first }}"
+      - -addext
+      - "subjectAltName={{ traefik_internal_tls_sans | map('regex_replace', '^', 'DNS:') | join(',') }}"
+    creates: "{{ traefik_tls_cert_dir }}/{{ traefik_tls_cert_name }}"
+  no_log: true
+  when:
+    - traefik_tls_mode == "internal"
+    - traefik_internal_tls_source == "generated"
+    - not ansible_check_mode
+
+- name: Restrict generated internal TLS private key permissions
+  ansible.builtin.file:
+    path: "{{ traefik_tls_cert_dir }}/{{ traefik_tls_private_key_name }}"
+    owner: root
+    group: root
+    mode: '0600'
+  when:
+    - traefik_tls_mode == "internal"
+    - traefik_internal_tls_source == "generated"
+    - not ansible_check_mode
 
 - name: Deploy private key from vault to traefik certs directory
   ansible.builtin.copy:
@@ -53,6 +120,7 @@
   no_log: true
   when: 
     - traefik_tls_mode == "internal"
+    - traefik_internal_tls_source == "provided"
     - not ansible_check_mode
 
 - name: Deploy certificate from vault to traefik certs directory
@@ -64,6 +132,7 @@
     mode: '0644'
   when: 
     - traefik_tls_mode == "internal"
+    - traefik_internal_tls_source == "provided"
     - not ansible_check_mode  
 
 - name: Generate tls.yml file for traefik

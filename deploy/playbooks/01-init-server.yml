@@ -13,6 +13,12 @@
           - platform_domain | length > 0
           - platform_ssh_port | default(22) | int >= 1
           - platform_ssh_port | default(22) | int <= 65535
+          - traefik_http_port | default(80) | string is match('^[0-9]+$')
+          - traefik_http_port | default(80) | int >= 1
+          - traefik_http_port | default(80) | int <= 65535
+          - traefik_https_port | default(443) | string is match('^[0-9]+$')
+          - traefik_https_port | default(443) | int >= 1
+          - traefik_https_port | default(443) | int <= 65535
           - platform_admin_authorized_keys is sequence
           - platform_admin_authorized_keys is not string
           - platform_admin_authorized_keys | length > 0
@@ -97,6 +103,18 @@
         port: "{{ platform_ssh_port | default(22) }}"
         proto: tcp
         comment: SSH
+
+    - name: Allow Traefik HTTP and HTTPS ports before enabling UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: tcp
+        comment: "{{ item.comment }}"
+      loop:
+        - port: "{{ traefik_http_port | default(80) }}"
+          comment: Traefik HTTP
+        - port: "{{ traefik_https_port | default(443) }}"
+          comment: Traefik HTTPS
 
     - name: Configure SSH listening port
       ansible.builtin.lineinfile:

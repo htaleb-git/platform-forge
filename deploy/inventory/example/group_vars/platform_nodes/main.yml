@@ -27,9 +27,11 @@ gitlab_enabled: false
 # gitlab_hostname: code.example.com
 gitlab_ssh_port: 2222
 
-# Reverse proxy TLS. ACME requires a real contact email; internal mode requires
-# the certificate and private key placeholders documented in vault.yml.example.
+# Reverse proxy TLS. Internal TLS uses Vault-provided material by default. Set
+# traefik_internal_tls_source: generated for an opt-in self-signed certificate.
+# ACME requires a real contact email.
 traefik_tls_mode: internal
+traefik_internal_tls_source: provided
 traefik_acme_email: ""
 
 # Monitoring capabilities remain independently opt-in. Grafana requires
