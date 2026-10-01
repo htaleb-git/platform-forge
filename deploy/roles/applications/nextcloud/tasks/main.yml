@@ -50,26 +50,116 @@
   delay: 5
   when: not ansible_check_mode
 
+- name: Wait for Nextcloud initialization to complete
+  ansible.builtin.command:
+    cmd: >
+      docker exec {{ nextcloud_container_name }}
+      test -f /var/www/html/lib/versioncheck.php
+  register: nextcloud_initialization
+  changed_when: false
+  retries: 60
+  delay: 5
+  until: nextcloud_initialization.rc == 0
+  when: not ansible_check_mode
+
+- name: Check whether Nextcloud is installed
+  ansible.builtin.command:
+    cmd: >
+      docker exec -u www-data {{ nextcloud_container_name }}
+      php occ status --output=json
+  register: nextcloud_status
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode
+
+- name: Set Nextcloud installation state
+  ansible.builtin.set_fact:
+    nextcloud_is_installed: >-
+      {{
+        (nextcloud_status.stdout | default('{}') | from_json).installed
+        | default(false)
+        | bool
+      }}
+  when: not ansible_check_mode
+
+- name: Read current Nextcloud trusted proxy
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - -u
+      - www-data
+      - "{{ nextcloud_container_name }}"
+      - php
+      - occ
+      - config:system:get
+      - trusted_proxies
+      - "0"
+  register: nextcloud_current_trusted_proxy
+  changed_when: false
+  failed_when: false
+  when:
+    - not ansible_check_mode
+    - nextcloud_is_installed | default(false) | bool
+
 - name: Configure Nextcloud trusted proxy
   ansible.builtin.command:
-    cmd: >
-      docker exec -u www-data {{ nextcloud_container_name }}
-      php occ config:system:set trusted_proxies 0
-      --value={{ nextcloud_trusted_proxy }}
-  when: not ansible_check_mode
+    argv:
+      - docker
+      - exec
+      - -u
+      - www-data
+      - "{{ nextcloud_container_name }}"
+      - php
+      - occ
+      - config:system:set
+      - trusted_proxies
+      - "0"
+      - "--value={{ nextcloud_trusted_proxy }}"
+  when:
+    - not ansible_check_mode
+    - nextcloud_is_installed | default(false) | bool
+    - nextcloud_current_trusted_proxy.stdout | trim != nextcloud_trusted_proxy
 
-- name: Configure Nextcloud overwrite protocol
+- name: Read current Nextcloud scalar proxy configuration
   ansible.builtin.command:
-    cmd: >
-      docker exec -u www-data {{ nextcloud_container_name }}
-      php occ config:system:set overwriteprotocol
-      --value={{ nextcloud_protocol }}
-  when: not ansible_check_mode
+    argv:
+      - docker
+      - exec
+      - -u
+      - www-data
+      - "{{ nextcloud_container_name }}"
+      - php
+      - occ
+      - config:system:get
+      - "{{ item.key }}"
+  loop:
+    - key: overwriteprotocol
+      value: "{{ nextcloud_protocol }}"
+    - key: overwritehost
+      value: "{{ nextcloud_hostname }}"
+  register: nextcloud_current_proxy_config
+  changed_when: false
+  failed_when: false
+  when:
+    - not ansible_check_mode
+    - nextcloud_is_installed | default(false) | bool
 
-- name: Configure Nextcloud overwrite host
+- name: Configure Nextcloud scalar proxy configuration
   ansible.builtin.command:
-    cmd: >
-      docker exec -u www-data {{ nextcloud_container_name }}
-      php occ config:system:set overwritehost
-      --value={{ nextcloud_hostname }}
-  when: not ansible_check_mode
+    argv:
+      - docker
+      - exec
+      - -u
+      - www-data
+      - "{{ nextcloud_container_name }}"
+      - php
+      - occ
+      - config:system:set
+      - "{{ item.item.key }}"
+      - "--value={{ item.item.value }}"
+  loop: "{{ nextcloud_current_proxy_config.results }}"
+  when:
+    - not ansible_check_mode
+    - nextcloud_is_installed | default(false) | bool
+    - item.stdout | trim != item.item.value | string

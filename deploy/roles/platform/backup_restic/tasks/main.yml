@@ -75,8 +75,6 @@
   loop:
     - path: "{{ restic_password_file | dirname }}"
       mode: "0700"
-    - path: "{{ platform_backup_root }}"
-      mode: "0700"
     - path: "{{ restic_restore_staging_root }}"
       mode: "0700"
 

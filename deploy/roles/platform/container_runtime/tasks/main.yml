@@ -2,7 +2,7 @@
 - name: Validate supported architecture
   ansible.builtin.assert:
     that:
-      - ansible_facts.distribution == "Ubuntu"    
+      - ansible_facts.distribution == "Ubuntu"
       - ansible_facts.architecture in docker_architecture_map
     fail_msg: >-
       Unsupported platform:
@@ -32,13 +32,19 @@
     owner: root
     group: root
     mode: "0644"
+  register: docker_apt_repository
+
+- name: Update APT cache after adding Docker repository
+  ansible.builtin.apt:
+    update_cache: true
+  when:
+    - docker_apt_repository.changed
+    - not ansible_check_mode
 
 - name: Install container runtime packages
   ansible.builtin.apt:
     name: "{{ container_runtime_packages }}"
     state: present
-    update_cache: true
-    cache_valid_time: 3600
   when: not ansible_check_mode
 
 - name: Ensure Docker configuration directory exists
@@ -47,7 +53,7 @@
     state: directory
     owner: root
     group: root
-    mode: "0755"    
+    mode: "0755"
 
 - name: Configure Docker daemon
   ansible.builtin.template:
@@ -56,12 +62,12 @@
     owner: root
     group: root
     mode: "0644"
-    validate: "/usr/bin/dockerd --validate --config-file=%s"    
+    validate: "/usr/bin/dockerd --validate --config-file=%s"
   notify:
     - Restart docker service
 
 - name: Apply container runtime handlers before Docker-dependent roles
-  ansible.builtin.meta: flush_handlers    
+  ansible.builtin.meta: flush_handlers
 
 - name: Add explicitly configured users to the Docker group
   ansible.builtin.user:

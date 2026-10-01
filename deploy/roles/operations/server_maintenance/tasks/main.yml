@@ -47,20 +47,10 @@
 - name: Check Restic repository
   ansible.builtin.command:
     argv:
-      - restic
-      - check
-  environment: >-
-    {{
-      restic_environment
-      | combine({
-          'RESTIC_REPOSITORY': restic_repository,
-          'RESTIC_PASSWORD_FILE': restic_password_file
-        })
-    }}
+      - /usr/local/sbin/check-restic.sh
   register: maintenance_restic_check
   changed_when: false
   when: maintenance_check_restic | bool
-  no_log: true
 
 - name: Report successful Restic repository check
   ansible.builtin.debug:
@@ -125,7 +115,7 @@
     - maintenance_docker_cleanup_enabled | bool
     - maintenance_docker_prune_dangling_images | bool
     - maintenance_docker_image_prune is defined
-    
+
 - name: Prune old Docker builder cache
   ansible.builtin.command:
     cmd: >-

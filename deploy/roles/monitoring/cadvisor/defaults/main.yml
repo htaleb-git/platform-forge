@@ -1,7 +1,7 @@
 ---
 cadvisor_enabled: false
 cadvisor_container_name: cadvisor
-cadvisor_image: ghcr.io/google/cadvisor:v0.55.1
+cadvisor_image: ghcr.io/google/cadvisor:0.55.1
 cadvisor_port: 8080
 cadvisor_restart_policy: unless-stopped
 cadvisor_network: "{{ platform_monitoring_network }}"

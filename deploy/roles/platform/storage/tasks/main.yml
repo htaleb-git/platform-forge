@@ -23,6 +23,6 @@
     state: directory
     owner: "{{ storage_owner }}"
     group: "{{ storage_group }}"
-    mode: '0755'
+    mode: "{{ storage_backup_mode if item == 'backups' else storage_directory_mode }}"
   loop: "{{ storage_directories }}"
   when: not ansible_check_mode

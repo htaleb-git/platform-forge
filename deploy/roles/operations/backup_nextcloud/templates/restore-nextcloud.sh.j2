@@ -5,6 +5,8 @@ set -Eeuo pipefail
 GENERATION_DIR="$1"
 BACKUP_DB="${GENERATION_DIR}/{{ backup_nextcloud_db_name }}"
 BACKUP_CONFIG="${GENERATION_DIR}/{{ backup_nextcloud_config_name }}"
+BACKUP_DATA="${GENERATION_DIR}/{{ backup_nextcloud_data_name }}"
+TARGET_DATA="{{ backup_nextcloud_data_dir }}"
 TARGET_DB="{{ backup_nextcloud_data_dir }}/owncloud.db"
 TARGET_CONFIG="{{ backup_nextcloud_config_file }}"
 CONTAINER="{{ backup_nextcloud_container_name }}"
@@ -16,9 +18,22 @@ MAINTENANCE_ENABLED=0
 
 [[ "${GENERATION_DIR}" == /* && -d "${GENERATION_DIR}" && ! -L "${GENERATION_DIR}" ]] \
   || { echo "ERROR: restore source must be an explicit directory" >&2; exit 1; }
-[[ -s "${BACKUP_DB}" && -s "${BACKUP_CONFIG}" ]] \
+[[ -s "${BACKUP_DB}" && -s "${BACKUP_CONFIG}" && -s "${BACKUP_DATA}" ]] \
   || { echo "ERROR: incomplete Nextcloud restore source" >&2; exit 1; }
+
 sqlite3 "${BACKUP_DB}" "PRAGMA integrity_check;" | grep -qx ok
+
+# Validate data archive integrity and reject unsafe paths before extraction.
+tar -tzf "${BACKUP_DATA}" >/dev/null
+
+while IFS= read -r entry; do
+  [[ "${entry}" != /* ]] \
+    || { echo "ERROR: absolute path found in Nextcloud data archive" >&2; exit 1; }
+
+  [[ ! "${entry}" =~ (^|/)\.\.(/|$) ]] \
+    || { echo "ERROR: parent traversal found in Nextcloud data archive" >&2; exit 1; }
+done < <(tar -tzf "${BACKUP_DATA}")
+
 docker inspect "${CONTAINER}" >/dev/null
 docker exec -u www-data "${CONTAINER}" php occ status >/dev/null
 [[ -d "$(dirname -- "${TARGET_DB}")" && ! -L "$(dirname -- "${TARGET_DB}")" \
@@ -28,14 +43,35 @@ mkdir -p -- "{{ backup_nextcloud_restore_dir }}"
 
 rollback() {
   ROLLBACK_RUNNING=1
-  echo "ERROR: Nextcloud restore failed; attempting database/configuration rollback" >&2
-  [[ -f "${ROLLBACK_DIR}/owncloud.db" && -f "${ROLLBACK_DIR}/config.php" ]] \
-    && cp -a -- "${ROLLBACK_DIR}/owncloud.db" "${TARGET_DB}" \
-    && cp -a -- "${ROLLBACK_DIR}/config.php" "${TARGET_CONFIG}" \
-    && chown "{{ backup_nextcloud_container_uid }}:{{ backup_nextcloud_container_gid }}" "${TARGET_DB}" "${TARGET_CONFIG}" \
-    && chmod 0640 "${TARGET_DB}" "${TARGET_CONFIG}" \
-    && sqlite3 "${TARGET_DB}" "PRAGMA integrity_check;" | grep -qx ok \
-    || { echo "CRITICAL: Nextcloud rollback failed; manual recovery is required" >&2; return 1; }
+  echo "ERROR: Nextcloud restore failed; attempting database/configuration/data rollback" >&2
+
+  if [[ ! -f "${ROLLBACK_DIR}/owncloud.db" \
+     || ! -f "${ROLLBACK_DIR}/config.php" \
+     || ! -f "${ROLLBACK_DIR}/data.tar.gz" ]]; then
+    echo "CRITICAL: incomplete Nextcloud rollback artifacts; manual recovery is required" >&2
+    return 1
+  fi
+
+  find "${TARGET_DATA}" -mindepth 1 -maxdepth 1 \
+    ! -name 'owncloud.db' \
+    ! -name 'nextcloud.log' \
+    -exec rm -rf -- {} +
+
+  tar -xzf "${ROLLBACK_DIR}/data.tar.gz" -C "${TARGET_DATA}"
+
+  cp -a -- "${ROLLBACK_DIR}/owncloud.db" "${TARGET_DB}"
+  cp -a -- "${ROLLBACK_DIR}/config.php" "${TARGET_CONFIG}"
+
+  chown "{{ backup_nextcloud_container_uid }}:{{ backup_nextcloud_container_gid }}" \
+    "${TARGET_DB}" "${TARGET_CONFIG}"
+
+  chmod 0640 "${TARGET_DB}" "${TARGET_CONFIG}"
+
+  sqlite3 "${TARGET_DB}" "PRAGMA integrity_check;" | grep -qx ok \
+    || {
+      echo "CRITICAL: Nextcloud rollback failed; manual recovery is required" >&2
+      return 1
+    }
 }
 
 on_exit() {
@@ -57,12 +93,23 @@ mkdir -- "${ROLLBACK_DIR}"
   || { echo "ERROR: current Nextcloud database/configuration cannot be preserved" >&2; exit 1; }
 cp -a -- "${TARGET_DB}" "${ROLLBACK_DIR}/owncloud.db"
 cp -a -- "${TARGET_CONFIG}" "${ROLLBACK_DIR}/config.php"
+tar \
+  --exclude='./owncloud.db' \
+  --exclude='./nextcloud.log' \
+  -czf "${ROLLBACK_DIR}/data.tar.gz" \
+  -C "${TARGET_DATA}" .
 sqlite3 "${ROLLBACK_DIR}/owncloud.db" "PRAGMA integrity_check;" | grep -qx ok
 ROLLBACK_READY=1
 
 docker exec -u www-data "${CONTAINER}" php occ maintenance:mode --on
 MAINTENANCE_ENABLED=1
 MUTATION_STARTED=1
+find "${TARGET_DATA}" -mindepth 1 -maxdepth 1 \
+  ! -name 'owncloud.db' \
+  ! -name 'nextcloud.log' \
+  -exec rm -rf -- {} +
+
+tar -xzf "${BACKUP_DATA}" -C "${TARGET_DATA}"
 install -o "{{ backup_nextcloud_container_uid }}" -g "{{ backup_nextcloud_container_gid }}" -m 0640 "${BACKUP_DB}" "${TARGET_DB}"
 install -o "{{ backup_nextcloud_container_uid }}" -g "{{ backup_nextcloud_container_gid }}" -m 0640 "${BACKUP_CONFIG}" "${TARGET_CONFIG}"
 sqlite3 "${TARGET_DB}" "PRAGMA integrity_check;" | grep -qx ok
@@ -70,4 +117,4 @@ docker exec -u www-data "${CONTAINER}" php occ maintenance:mode --off
 MAINTENANCE_ENABLED=0
 docker exec -u www-data "${CONTAINER}" php occ status >/dev/null
 MUTATION_STARTED=0
-echo "Nextcloud database/configuration restore completed; user files were not restored"
+echo "Nextcloud database/configuration/data restore completed"

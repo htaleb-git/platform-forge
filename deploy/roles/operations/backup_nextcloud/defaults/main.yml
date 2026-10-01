@@ -4,6 +4,7 @@ backup_nextcloud_root: "{{ platform_backup_root }}/nextcloud"
 backup_nextcloud_generations_dir: "{{ backup_nextcloud_root }}/generations"
 backup_nextcloud_db_name: owncloud.db
 backup_nextcloud_config_name: config.php
+backup_nextcloud_data_name: data.tar.gz
 backup_nextcloud_generations_to_keep: 2
 backup_nextcloud_schedule: "*-*-* 03:10:00"
 backup_nextcloud_randomized_delay: 5m

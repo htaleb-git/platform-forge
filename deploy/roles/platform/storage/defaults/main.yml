@@ -4,5 +4,9 @@ storage_directories:
   - apps
   - data
   - backups
+
 storage_owner: "{{ platform_admin_user }}"
 storage_group: "{{ platform_admin_user }}"
+
+storage_directory_mode: "0755"
+storage_backup_mode: "0700"

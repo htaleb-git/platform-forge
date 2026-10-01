@@ -10,6 +10,7 @@ STAGING_DIR="${STAGING_PARENT}/${GENERATION_ID}"
 GENERATION_DIR="${GENERATIONS_DIR}/${GENERATION_ID}"
 DB_FILE="${STAGING_DIR}/{{ backup_nextcloud_db_name }}"
 CONFIG_FILE="${STAGING_DIR}/{{ backup_nextcloud_config_name }}"
+DATA_FILE="${STAGING_DIR}/{{ backup_nextcloud_data_name }}"
 SOURCE_DB="{{ backup_nextcloud_data_dir }}/owncloud.db"
 SOURCE_CONFIG="{{ backup_nextcloud_config_file }}"
 KEEP_GENERATIONS={{ backup_nextcloud_generations_to_keep | int }}
@@ -71,13 +72,20 @@ docker exec -u www-data "${CONTAINER}" php occ maintenance:mode --on
 MAINTENANCE_ENABLED=1
 cp "${SOURCE_DB}" "${DB_FILE}"
 cp "${SOURCE_CONFIG}" "${CONFIG_FILE}"
+tar \
+  --exclude='./owncloud.db' \
+  --exclude='./nextcloud.log' \
+  -czf "${DATA_FILE}" \
+  -C "{{ backup_nextcloud_data_dir }}" .
 
-[[ -s "${DB_FILE}" && -s "${CONFIG_FILE}" ]] \
+[[ -s "${DB_FILE}" && -s "${CONFIG_FILE}" && -s "${DATA_FILE}" ]] \
   || { echo "ERROR: incomplete Nextcloud backup generation" >&2; exit 1; }
 sqlite3 "${DB_FILE}" "PRAGMA integrity_check;" | grep -qx "ok" \
   || { echo "ERROR: Nextcloud SQLite integrity check failed" >&2; exit 1; }
-chown "{{ backup_nextcloud_owner }}:{{ backup_nextcloud_group }}" "${DB_FILE}" "${CONFIG_FILE}"
-chmod "{{ backup_nextcloud_file_mode }}" "${DB_FILE}" "${CONFIG_FILE}"
+chown "{{ backup_nextcloud_owner }}:{{ backup_nextcloud_group }}" \
+  "${DB_FILE}" "${CONFIG_FILE}" "${DATA_FILE}"
+chmod "{{ backup_nextcloud_file_mode }}" \
+  "${DB_FILE}" "${CONFIG_FILE}" "${DATA_FILE}"
 
 docker exec -u www-data "${CONTAINER}" php occ maintenance:mode --off
 MAINTENANCE_ENABLED=0

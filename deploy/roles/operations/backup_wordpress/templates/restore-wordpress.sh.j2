@@ -33,6 +33,12 @@ db_import() {
   || { echo "ERROR: incomplete WordPress restore source" >&2; exit 1; }
 grep -Eq 'MariaDB dump|MySQL dump' "${DUMP_FILE}" \
   || { echo "ERROR: invalid WordPress SQL dump" >&2; exit 1; }
+
+
+EXPECTED_TABLES="$(grep -Ec '^CREATE TABLE ' "${DUMP_FILE}" || true)"
+[[ "${EXPECTED_TABLES}" =~ ^[0-9]+$ ]] \
+  || { echo "ERROR: unable to determine expected WordPress table count" >&2; exit 1; }
+
 docker inspect "${DB_CONTAINER}" "${WP_CONTAINER}" >/dev/null
 db_exec -N -e "SELECT 1" | grep -qx 1
 [[ -d "${WORDPRESS_DIR}" && ! -L "${WORDPRESS_DIR}" \
@@ -64,7 +70,7 @@ rollback() {
     && tar -xzf "${ROLLBACK_CONTENT}" -C "${WORDPRESS_DIR}" --no-same-owner \
     && chown -R "{{ backup_wordpress_container_uid }}:{{ backup_wordpress_container_gid }}" "${CONTENT_DIR}" \
     && docker start "${WP_CONTAINER}" >/dev/null \
-    && db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ backup_wordpress_db_name }}';" | grep -Eq '^[1-9][0-9]*$' \
+    && db_exec -N -e "SELECT 1" | grep -qx 1 \
     || { echo "CRITICAL: WordPress rollback failed; manual recovery is required" >&2; return 1; }
 }
 
@@ -90,14 +96,27 @@ docker stop "${WP_CONTAINER}" >/dev/null
 MUTATION_STARTED=1
 db_exec -e "DROP DATABASE IF EXISTS \`{{ backup_wordpress_db_name }}\`; CREATE DATABASE \`{{ backup_wordpress_db_name }}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`{{ backup_wordpress_db_name }}\`.* TO '{{ backup_wordpress_db_user }}'@'%'; FLUSH PRIVILEGES;"
 db_import < "${DUMP_FILE}"
+
 TABLE_COUNT="$(db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ backup_wordpress_db_name }}';")"
-[[ "${TABLE_COUNT}" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: restored WordPress database contains no tables" >&2; exit 1; }
+
+[[ "${TABLE_COUNT}" =~ ^[0-9]+$ && "${TABLE_COUNT}" -eq "${EXPECTED_TABLES}" ]] \
+  || {
+    echo "ERROR: restored WordPress database table count differs from backup" >&2
+    exit 1
+  }
+
 rm -rf --one-file-system -- "${CONTENT_DIR}"
 cp -a -- "${EXTRACT_DIR}/wp-content" "${WORDPRESS_DIR}/"
 chown -R "{{ backup_wordpress_container_uid }}:{{ backup_wordpress_container_gid }}" "${CONTENT_DIR}"
 docker start "${WP_CONTAINER}" >/dev/null
 [[ "$(docker inspect -f '{{ "{{.State.Running}}" }}' "${WP_CONTAINER}")" == "true" ]]
-db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ backup_wordpress_db_name }}';" | grep -Eq '^[1-9][0-9]*$'
+FINAL_TABLE_COUNT="$(db_exec -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ backup_wordpress_db_name }}';")"
+
+[[ "${FINAL_TABLE_COUNT}" =~ ^[0-9]+$ && "${FINAL_TABLE_COUNT}" -eq "${EXPECTED_TABLES}" ]] \
+  || {
+    echo "ERROR: final WordPress database table count differs from backup" >&2
+    exit 1
+  }
 [[ -d "${CONTENT_DIR}" ]]
 MUTATION_STARTED=0
 echo "WordPress restore and local validation completed successfully"
