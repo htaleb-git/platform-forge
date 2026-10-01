@@ -46,3 +46,7 @@ htmlcov/
 tmp/
 var/
 console/*
+
+# Local AI development configuration
+AGENTS.md
+opencode.json
